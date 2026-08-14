@@ -28,17 +28,20 @@ local AddonName, ns = ...
 -- M0 liefert mit Bonus Roll ein Hero-Teil, wurde aber weiter in
 -- Champion-Gruen angezeigt. Genau die Information, die sich aendert, wurde
 -- dadurch falsch dargestellt.
+-- letter = Kuerzel des Upgrade-Pfads. Wird zusammen mit dem Rang angezeigt,
+-- also "H 3/6". Das sagt mehr als eine Wiederholung der Schluesselstein-Stufe,
+-- die ohnehin schon danebensteht.
 ns.TRACKS = {
-    veteran   = { name = "Veteran",  color = "ff9d9d9d",
+    veteran   = { name = "Veteran",  letter = "V", color = "ff9d9d9d",
                   ilvl = { 279, 282, 285, 289, 292, 295 },
                   bonus = { 12825, 12826, 12827, 12828, 12829, 12830 } },
-    champion  = { name = "Champion", color = "ff1eff00",
+    champion  = { name = "Champion", letter = "C", color = "ff1eff00",
                   ilvl = { 292, 295, 298, 302, 305, 308 },
                   bonus = { 12833, 12834, 12835, 12836, 12837, 12838 } },
-    hero      = { name = "Held",     color = "ff0070dd",
+    hero      = { name = "Held",     letter = "H", color = "ff0070dd",
                   ilvl = { 305, 308, 311, 315, 318, 321 },
                   bonus = { 12841, 12842, 12843, 12844, 12845, 12846 } },
-    myth      = { name = "Mythos",   color = "ffa335ee",
+    myth      = { name = "Mythos",   letter = "M", color = "ffa335ee",
                   ilvl = { 318, 321, 324, 328, 331, 334 },
                   bonus = { 12849, 12850, 12851, 12852, 12853, 12854 } },
 }
@@ -67,33 +70,53 @@ ns.TRACK_ORDER = { "veteran", "champion", "hero", "myth" }
 --
 -- Deshalb steht die Zuordnung jetzt ausgeschrieben da, wo sie sich pruefen und
 -- ohne Codeaenderung korrigieren laesst.
+-- DER BONUS ROLL GIBT DAS GREAT-VAULT-NIVEAU DER JEWEILIGEN STUFE.
+--
+-- Recherchiert am 14.08.2026. Belegt durch Method und mehrere Guides:
+-- "The gear obtained with a Nebulous Voidcore is aligned with the equivalent
+-- Great Vault reward level for that content." Ein Voidcore auf einem
+-- Schluesselstein 10 oder hoeher gibt ein Myth-Teil, darunter nicht.
+--
+-- Die vorherige Fassung rechnete "erste Stufe des naechsthoeheren Tracks".
+-- Diese Regel steht zwar in der eigenen Master-Notiz, dort aber im Abschnitt
+-- ueber RAIDS. Auf Dungeons uebertragen lag sie bei den mittleren Stufen
+-- deutlich zu hoch: Schon ein Schluesselstein 6 haette ein mythisches Teil
+-- geliefert.
+--
+-- Eine Korrektur an Methods Tabelle: Dort steht fuer +7 bis +9 "Hero 4/6" mit
+-- Itemlevel 311, obwohl Hero 3/6 bereits 311 ist. Die Itemlevel-Spalte hat
+-- dort offensichtlich einen Uebertragungsfehler. Uebernommen wird die
+-- Track-Angabe, das Itemlevel kommt aus der dreifach geprueften Tabelle oben.
 ns.SOURCES_DUNGEON = {
-    { key = "m0",  short = "M0",  label = "Mythisch 0",       track = "champion", rank = 1,
-      bonusTrack = "champion", bonusRank = 5 },
+    -- M0 zaehlt nicht fuer die Mythic+-Reihe der Vault, also gibt es dort
+    -- auch keinen Bonus Roll. bonusTrack bleibt deshalb leer.
+    { key = "m0",  short = "M0",  label = "Mythisch 0",       track = "champion", rank = 1 },
     { key = "m2",  short = "M2",  label = "Schlüsselstein 2", track = "champion", rank = 2,
-      bonusTrack = "champion", bonusRank = 6 },
+      bonusTrack = "hero", bonusRank = 1 },
     { key = "m3",  short = "M3",  label = "Schlüsselstein 3", track = "champion", rank = 2,
-      bonusTrack = "champion", bonusRank = 6 },
+      bonusTrack = "hero", bonusRank = 1 },
     { key = "m4",  short = "M4",  label = "Schlüsselstein 4", track = "champion", rank = 3,
-      bonusTrack = "hero", bonusRank = 1 },
-    { key = "m5",  short = "M5",  label = "Schlüsselstein 5", track = "champion", rank = 4,
-      bonusTrack = "hero", bonusRank = 1 },
-    { key = "m6",  short = "M6",  label = "Schlüsselstein 6", track = "hero", rank = 1,
       bonusTrack = "hero", bonusRank = 2 },
-    { key = "m7",  short = "M7",  label = "Schlüsselstein 7", track = "hero", rank = 1,
+    { key = "m5",  short = "M5",  label = "Schlüsselstein 5", track = "champion", rank = 4,
+      bonusTrack = "hero", bonusRank = 2 },
+    { key = "m6",  short = "M6",  label = "Schlüsselstein 6", track = "hero", rank = 1,
       bonusTrack = "hero", bonusRank = 3 },
+    { key = "m7",  short = "M7",  label = "Schlüsselstein 7", track = "hero", rank = 1,
+      bonusTrack = "hero", bonusRank = 4 },
     { key = "m8",  short = "M8",  label = "Schlüsselstein 8", track = "hero", rank = 2,
       bonusTrack = "hero", bonusRank = 4 },
     { key = "m9",  short = "M9",  label = "Schlüsselstein 9", track = "hero", rank = 2,
-      bonusTrack = "hero", bonusRank = 5 },
-    -- Erst ab Stufe 10 ein mythisches Teil. Das ist der Stand aus Season 1
-    -- und der Grund, Bonus Rolls bis hierhin aufzusparen.
+      bonusTrack = "hero", bonusRank = 4 },
+    -- Ab hier lohnt der Voidcore: erst Stufe 10 hebt den Bonus Roll in den
+    -- Myth-Track. Genau deshalb spart man Rolls bis hierhin auf.
     { key = "m10", short = "M10", label = "Schlüsselstein 10", track = "hero", rank = 3,
       bonusTrack = "myth", bonusRank = 1 },
-    { key = "vault", short = "GV", label = "Große Schatzkammer", track = "myth", rank = 1,
-      bonusTrack = "myth", bonusRank = 2 },
+    { key = "m12", short = "M12", label = "Schlüsselstein 12+", track = "hero", rank = 3,
+      bonusTrack = "myth", bonusRank = 1 },
 }
 
+-- Raid-Vault gibt jeweils eine Schwierigkeit hoeher als gespielt. Mythic gibt
+-- ein voll aufgewertetes Myth-Teil, was eine Menge Crests spart.
 ns.SOURCES_RAID = {
     { key = "lfr",    short = "LFR", label = "Schlachtzugsbrowser", track = "veteran",  rank = 1,
       bonusTrack = "champion", bonusRank = 1 },
@@ -102,7 +125,7 @@ ns.SOURCES_RAID = {
     { key = "heroic", short = "H",   label = "Heroisch",            track = "hero",     rank = 1,
       bonusTrack = "myth", bonusRank = 1 },
     { key = "mythic", short = "M",   label = "Mythisch",            track = "myth",     rank = 1,
-      bonusTrack = "myth", bonusRank = 2 },
+      bonusTrack = "myth", bonusRank = 6 },
 }
 
 -- Bonus Roll: springt auf die erste Stufe des naechsthoeheren Tracks.
@@ -138,7 +161,15 @@ function ns.ResolveSource(source, asBonusRoll)
         track   = t.name,
         color   = t.color,     -- Farbe des ERGEBNIS-Tracks, nicht der Quelle
         rank    = rank,
+        letter  = t.letter,
+        badge   = string.format("%s %d/6", t.letter, rank),   -- z.B. "H 3/6"
     }
+end
+
+-- Gibt es fuer diese Quelle ueberhaupt einen Bonus Roll?
+-- Mythisch 0 zaehlt nicht fuer die Mythic+-Reihe der Great Vault, also nicht.
+function ns.HasBonusRoll(source)
+    return source and source.bonusTrack ~= nil
 end
 
 -- Farbe der Quelle selbst, also des Schluesselsteins bzw. der Raid-Stufe.

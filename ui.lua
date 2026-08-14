@@ -178,10 +178,20 @@ local function SetCurrentSource(key)
     end
 end
 
+-- Aufgeloeste Quelle, an EINER Stelle. Vorher stand die Bonus-Roll-Pruefung an
+-- vier Stellen im Code, was auseinanderdriftet sobald sich die Regel aendert.
+-- Beruecksichtigt auch, dass es fuer manche Stufen gar keinen Roll gibt.
+local function ResolvedCurrent()
+    if not ns.ResolveSource then return nil end
+    local src = CurrentSource()
+    local useRoll = SlotMachineDB.bonusRoll and ns.HasBonusRoll(src)
+    return ns.ResolveSource(src, useRoll), src
+end
+
 -- Itemlevel des Items auf dem gewaehlten Niveau. Ohne Track-Auswahl faellt es
 -- auf das Basis-Level zurueck, das der Client kennt.
 local function ItemLevelOf(itemID)
-    local resolved = ns.ResolveSource and ns.ResolveSource(CurrentSource(), SlotMachineDB.bonusRoll)
+    local resolved = ResolvedCurrent()
     if resolved and resolved.ilvl then return resolved.ilvl end
     if not (C_Item and C_Item.GetDetailedItemLevelInfo) then return nil end
     local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, itemID)
@@ -826,18 +836,20 @@ local function BuildSourceMenu()
     local cur = CurrentSource()
     for i, s in ipairs(list) do
         local e = MenuEntry(srcMenu, i, 200)
-        local r = ns.ResolveSource(s, SlotMachineDB.bonusRoll)
+        -- Je Zeile pruefen, ob diese Stufe ueberhaupt einen Roll kennt
+        local r = ns.ResolveSource(s, SlotMachineDB.bonusRoll and ns.HasBonusRoll(s))
         local lvl = r and r.ilvl or "?"
         local col = (s.key == cur.key) and ACCENT or INK
         e.text:SetText("|c" .. col .. s.label .. "|r")
-        -- Zwei Farben, zwei Aussagen: Das Kuerzel traegt die Farbe der QUELLE
-        -- (wo laufe ich), das Itemlevel die Farbe des LOOTS (was kommt dabei
-        -- heraus). Bei einem Bonus Roll faellt beides auseinander, und genau
-        -- das soll sichtbar sein.
-        local kc = ns.SourceColor(s)
-        local lc = (r and r.color) or INK_DIM
-        local sh = (s.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
-        e.arrow:SetText("|c" .. kc .. sh .. "|r |c" .. lc .. lvl .. "|r")
+
+        -- Rechts steht der Upgrade-Pfad des Loots plus dessen Itemlevel, beides
+        -- in der Farbe des Tracks. Also "H 3/6  311" statt einer Wiederholung
+        -- der Schluesselstein-Stufe, die links ohnehin schon dasteht.
+        if not r then
+            e.arrow:SetText("|c" .. INK_DIM .. "kein Roll|r")
+        else
+            e.arrow:SetText("|c" .. r.color .. r.badge .. "|r  |c" .. r.color .. lvl .. "|r")
+        end
         e:SetScript("OnClick", function()
             SetCurrentSource(s.key)
             srcMenu:Hide(); ns.UI:Render()
@@ -879,13 +891,21 @@ rollBtn.text:SetPoint("LEFT", rollBtn, "LEFT", 23, 0)
 
 function rollBtn:Refresh()
     local on = SlotMachineDB.bonusRoll
+    -- Gibt es fuer die gewaehlte Stufe ueberhaupt einen Roll? Bei Mythisch 0
+    -- nicht, weil M0 nicht fuer die Mythic+-Reihe der Vault zaehlt.
+    local possible = ns.HasBonusRoll and ns.HasBonusRoll(CurrentSource())
+
     self.fill:SetColorTexture(SURFACE[1], SURFACE[2], SURFACE[3], on and 0.9 or 0.4)
-    if on then
+    if not possible then
+        self.box:SetColorTexture(0.18, 0.18, 0.2, 0.9)
+        self.text:SetText("|c" .. INK_DIM .. "kein Roll|r")
+    elseif on then
         self.box:SetColorTexture(HexToRGB(ACCENT))
+        self.text:SetText("|c" .. ACCENT .. "Bonus Roll|r")
     else
         self.box:SetColorTexture(0.25, 0.25, 0.27, 0.9)
+        self.text:SetText("|c" .. INK_DIM .. "Bonus Roll|r")
     end
-    self.text:SetText("|c" .. (on and ACCENT or INK_DIM) .. "Bonus Roll|r")
 end
 
 rollBtn:SetScript("OnClick", function(self)
@@ -1273,19 +1293,16 @@ function UI:Render()
     specBtn.text:SetText("|c" .. ((currentSpec or currentClass) and ACCENT or INK) .. FilterLabel() .. "|r")
 
     -- Track-Waehler beschriften: Quelle plus resultierendes Itemlevel
-    local src = CurrentSource()
-    local res = ns.ResolveSource and ns.ResolveSource(src, SlotMachineDB.bonusRoll)
+    local res, src = ResolvedCurrent()
+    if rollBtn and rollBtn.Refresh then rollBtn:Refresh() end
     if src then
-        -- Kuerzel in Quellenfarbe, Beschriftung neutral
-        local kc = ns.SourceColor(src)
-        local sh = (src.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
-        srcBtn.text:SetText("|c" .. kc .. sh .. "|r |c" .. INK .. src.label .. "|r")
+        srcBtn.text:SetText("|c" .. INK .. src.label .. "|r")
     else
         srcBtn.text:SetText("|c" .. INK .. "?|r")
     end
     if res then
-        -- Itemlevel in der Farbe des Loots, den man dafuer bekommt
-        srcBtn.arrow:SetText("|c" .. (res.color or INK_DIM) .. res.ilvl .. "|r")
+        -- Upgrade-Pfad und Itemlevel des Loots, beides in Track-Farbe
+        srcBtn.arrow:SetText("|c" .. res.color .. res.badge .. "  " .. res.ilvl .. "|r")
     else
         srcBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
     end
@@ -1495,7 +1512,7 @@ function UI:Render()
                 -- Deshalb wird jetzt geprueft, ob wirklich Zeilen im Tooltip
                 -- stehen. Das ist der einzige verlaessliche Beleg dafuer, dass
                 -- der Link verstanden wurde.
-                local src = ns.ResolveSource and ns.ResolveSource(CurrentSource(), SlotMachineDB.bonusRoll)
+                local src = ResolvedCurrent()
                 local shown = false
                 if src and src.bonusId and ns.BuildItemLink then
                     local link = ns.BuildItemLink(itemID, src.bonusId)
@@ -1511,10 +1528,12 @@ function UI:Render()
 
                 GameTooltip:AddLine(" ")
                 if src then
-                    GameTooltip:AddLine(string.format("%s %d/6  ·  Stufe %d",
-                        src.track, src.rank, src.ilvl), HexToRGB(ACCENT))
+                    local q = CurrentSource()
+                    GameTooltip:AddLine(string.format("%s  ·  %s %s",
+                        (q and q.label) or "?", src.track, src.badge), HexToRGB(src.color))
                     if SlotMachineDB.bonusRoll then
-                        GameTooltip:AddLine("mit Bonus Roll gerechnet", 0.65, 0.63, 0.58)
+                        GameTooltip:AddLine("Bonus Roll, entspricht der Großen Schatzkammer dieser Stufe",
+                            0.65, 0.63, 0.58, true)
                     end
                 end
 
