@@ -444,11 +444,13 @@ end
 -- was zaehlt.
 local function SortItems(list)
     table.sort(list, function(a, b)
+        -- TIERS[ta] kann nil sein, wenn in den gespeicherten Daten eine Stufe
+        -- steht, die es nicht mehr gibt. Deshalb nicht direkt indizieren.
         local ta, tb = TierOf(a), TierOf(b)
-        local wa = ta and TIERS[ta].order or 99
-        local wb = tb and TIERS[tb].order or 99
+        local wa = (ta and TIERS[ta] and TIERS[ta].order) or 99
+        local wb = (tb and TIERS[tb] and TIERS[tb].order) or 99
         if wa ~= wb then return wa < wb end
-        return a < b
+        return (a or 0) < (b or 0)
     end)
 end
 
@@ -483,7 +485,7 @@ local function BuildSources()
         local isRaid = IsRaid(instID)
         if (currentTab == "RAID") == isRaid then
             if byDungeon then
-                local shown, wish, score, seen, openWish = {}, 0, 0, {}, 0
+                local shown, wish, score, seen, openWish, pool = {}, 0, 0, {}, 0, 0
                 for _, items in pairs(bosses) do
                     for _, itemID in ipairs(items) do
                         -- Ein Item kann bei mehreren Bossen fallen. In der
@@ -491,6 +493,12 @@ local function BuildSources()
                         if not seen[itemID] and PassesSlot(itemID) then
                             seen[itemID] = true
                             shown[#shown + 1] = itemID
+                            -- Der Bonus-Roll-Pool besteht aus allen Items, die
+                            -- man noch NICHT hat. Erhaltene fallen heraus.
+                            -- Deshalb wird hier mitgezaehlt, wie viele Items
+                            -- ueberhaupt noch im Pool sind.
+                            if not Owned(itemID) then pool = pool + 1 end
+
                             local t = TierOf(itemID)
                             if t then
                                 wish = wish + 1
@@ -510,15 +518,16 @@ local function BuildSources()
                     out[#out + 1] = {
                         instanceID = instID, encounterID = nil,
                         items = shown, wish = openWish, total = #shown,
-                        score = score, isRaid = isRaid,
+                        pool = pool, score = score, isRaid = isRaid,
                     }
                 end
             else
                 for encID, items in pairs(bosses) do
-                    local shown, wish, score, openWish = {}, 0, 0, 0
+                    local shown, wish, score, openWish, pool = {}, 0, 0, 0, 0
                     for _, itemID in ipairs(items) do
                         if PassesSlot(itemID) then
                             shown[#shown + 1] = itemID
+                            if not Owned(itemID) then pool = pool + 1 end
                             local t = TierOf(itemID)
                             if t then
                                 wish = wish + 1
@@ -534,7 +543,7 @@ local function BuildSources()
                         out[#out + 1] = {
                             instanceID = instID, encounterID = encID,
                             items = shown, wish = openWish, total = #shown,
-                            score = score, isRaid = isRaid,
+                            pool = pool, score = score, isRaid = isRaid,
                         }
                     end
                 end
@@ -546,11 +555,25 @@ local function BuildSources()
     -- vier, ein "waere ganz nett" eins. Bei Gleichstand entscheidet die Anzahl,
     -- danach die Instanz, damit die Reihenfolge stabil bleibt und die Liste
     -- nicht bei jedem Klick springt.
+    -- ACHTUNG: Alle Felder mit "or 0" absichern.
+    --
+    -- In der Dungeon-Ansicht ist encounterID nil, weil dort alle Bosse einer
+    -- Instanz zusammengefasst sind. Erreichte der Vergleich diese Zeile,
+    -- verglich Lua zwei nil-Werte und brach mitten in table.sort ab. Weil das
+    -- innerhalb von Render passiert, blieb das Fenster halb aufgebaut stehen
+    -- und sah aus, als sei es verschwunden.
+    --
+    -- Eine Sortierfunktion muss fuer JEDE Kombination ein Ergebnis liefern,
+    -- auch fuer die, die man fuer unmoeglich haelt. table.sort vergleicht
+    -- Elemente in einer Reihenfolge, die man nicht vorhersagen kann.
     table.sort(out, function(a, b)
-        if a.score ~= b.score then return a.score > b.score end
-        if a.wish  ~= b.wish  then return a.wish  > b.wish  end
-        if a.instanceID ~= b.instanceID then return a.instanceID < b.instanceID end
-        return a.encounterID < b.encounterID
+        local sa, sb = a.score or 0, b.score or 0
+        if sa ~= sb then return sa > sb end
+        local wa, wb = a.wish or 0, b.wish or 0
+        if wa ~= wb then return wa > wb end
+        local ia, ib = a.instanceID or 0, b.instanceID or 0
+        if ia ~= ib then return ia < ib end
+        return (a.encounterID or 0) < (b.encounterID or 0)
     end)
     return out
 end
@@ -768,7 +791,9 @@ local function BuildSourceMenu()
         local lvl = r and r.ilvl or "?"
         local col = (s.key == cur.key) and ACCENT or INK
         e.text:SetText("|c" .. col .. s.label .. "|r")
-        e.arrow:SetText("|c" .. INK_DIM .. lvl .. "|r")
+        -- Kuerzel in Stufenfarbe vor dem Itemlevel, damit auf einen Blick
+        -- erkennbar ist, aus welchem Track das Niveau stammt.
+        e.arrow:SetText("|c" .. (s.color or INK_DIM) .. (s.short or "") .. "|r |c" .. INK_DIM .. lvl .. "|r")
         e:SetScript("OnClick", function()
             SetCurrentSource(s.key)
             srcMenu:Hide(); ns.UI:Render()
@@ -1156,7 +1181,11 @@ function UI:Render()
     -- Track-Waehler beschriften: Quelle plus resultierendes Itemlevel
     local src = CurrentSource()
     local res = ns.ResolveSource and ns.ResolveSource(src, SlotMachineDB.bonusRoll)
-    srcBtn.text:SetText("|c" .. INK .. (src and src.label or "?") .. "|r")
+    if src then
+        srcBtn.text:SetText("|c" .. (src.color or INK) .. (src.short or "") .. "|r |c" .. INK .. src.label .. "|r")
+    else
+        srcBtn.text:SetText("|c" .. INK .. "?|r")
+    end
     if res then
         srcBtn.arrow:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. res.ilvl .. "|r")
     else
@@ -1225,16 +1254,23 @@ function UI:Render()
             label = label or ("Instanz " .. src.instanceID)
         end
         row.name:SetText("|c" .. INK .. label .. "|r")
-        -- Trefferquote statt reinem Gewicht: "3/12" heisst, drei der zwoelf
-        -- hier moeglichen Items stehen offen auf deiner Wunschliste. Das ist
-        -- die grobe Chance, dass ein Drop dich ueberhaupt interessiert, und
-        -- damit die ehrlichste Zahl, die sich ohne echte Drop-Raten sagen
-        -- laesst. Blizzard veroeffentlicht keine, und die WoW-API kennt sie
-        -- ebenfalls nicht.
+        -- BONUS-ROLL-CHANCE. Das ist keine Schaetzung, sondern eine echte
+        -- Wahrscheinlichkeit, und zwar aus einem Grund: Ein Bonus Roll zieht
+        -- aus dem Pool der Items, die man noch NICHT besitzt. Erhaltene fallen
+        -- heraus. Also gilt schlicht:
+        --
+        --     offene Wunsch-Items / verbleibender Pool
+        --
+        -- Daraus folgt auch die Spielregel dahinter: Je mehr man besitzt, desto
+        -- kleiner der Pool und desto hoeher die Chance auf ein bestimmtes
+        -- fehlendes Teil. Deshalb lohnt es, Bonus Rolls aufzusparen und erst
+        -- auf hoher Stufe einzusetzen, wenn ein Treffer auch das beste
+        -- Itemlevel bringt.
         if src.wish > 0 then
-            local pct = math.floor((src.wish / math.max(1, src.total)) * 100 + 0.5)
+            local pool = math.max(1, src.pool or src.total)
+            local pct = math.floor((src.wish / pool) * 100 + 0.5)
             row.badge:SetText(string.format("|c%s%d|r|c%s/%d|r  |c%s%d%%|r",
-                ACCENT, src.wish, INK_DIM, src.total, INK_DIM, pct))
+                ACCENT, src.wish, INK_DIM, pool, GREEN, pct))
         else
             row.badge:SetText("")
         end

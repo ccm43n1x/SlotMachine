@@ -41,22 +41,25 @@ ns.TRACK_ORDER = { "veteran", "champion", "hero", "myth" }
 --
 -- Die Zuordnung der Schluesselstein-Stufen stammt aus Keystone Loots
 -- Suffix-Angaben ("+0", "+2 +3", "+4" ...), die dort neben jedem Rang stehen.
+-- Kuerzel und Farben nach Blizzards Schwierigkeitsgraden. Die Farben sind die
+-- Qualitaetsfarben, die WoW ohnehin fuer diese Stufen benutzt, damit man die
+-- Rangfolge ohne Legende liest.
 ns.SOURCES_DUNGEON = {
-    { key = "m0",   label = "Mythisch 0",       track = "champion", rank = 1 },
-    { key = "m2",   label = "Schlüsselstein 2-3", track = "champion", rank = 2 },
-    { key = "m4",   label = "Schlüsselstein 4",   track = "champion", rank = 3 },
-    { key = "m5",   label = "Schlüsselstein 5",   track = "champion", rank = 4 },
-    { key = "m6",   label = "Schlüsselstein 6-7", track = "hero",     rank = 1 },
-    { key = "m8",   label = "Schlüsselstein 8-9", track = "hero",     rank = 2 },
-    { key = "m10",  label = "Schlüsselstein 10",  track = "hero",     rank = 3 },
-    { key = "vault",label = "Große Schatzkammer", track = "myth",     rank = 1 },
+    { key = "m0",   short = "M0",  label = "Mythisch 0",         track = "champion", rank = 1, color = "ff1eff00" },
+    { key = "m2",   short = "M2",  label = "Schlüsselstein 2-3", track = "champion", rank = 2, color = "ff1eff00" },
+    { key = "m4",   short = "M4",  label = "Schlüsselstein 4",   track = "champion", rank = 3, color = "ff1eff00" },
+    { key = "m5",   short = "M5",  label = "Schlüsselstein 5",   track = "champion", rank = 4, color = "ff1eff00" },
+    { key = "m6",   short = "M6",  label = "Schlüsselstein 6-7", track = "hero",     rank = 1, color = "ff0070dd" },
+    { key = "m8",   short = "M8",  label = "Schlüsselstein 8-9", track = "hero",     rank = 2, color = "ff0070dd" },
+    { key = "m10",  short = "M10", label = "Schlüsselstein 10",  track = "hero",     rank = 3, color = "ff0070dd" },
+    { key = "vault",short = "GV",  label = "Große Schatzkammer", track = "myth",     rank = 1, color = "ffa335ee" },
 }
 
 ns.SOURCES_RAID = {
-    { key = "lfr",    label = "Schlachtzugsbrowser", track = "veteran",  rank = 1 },
-    { key = "normal", label = "Normal",              track = "champion", rank = 1 },
-    { key = "heroic", label = "Heroisch",            track = "hero",     rank = 1 },
-    { key = "mythic", label = "Mythisch",            track = "myth",     rank = 1 },
+    { key = "lfr",    short = "LFR", label = "Schlachtzugsbrowser", track = "veteran",  rank = 1, color = "ff9d9d9d" },
+    { key = "normal", short = "N",   label = "Normal",              track = "champion", rank = 1, color = "ff1eff00" },
+    { key = "heroic", short = "H",   label = "Heroisch",            track = "hero",     rank = 1, color = "ff0070dd" },
+    { key = "mythic", short = "M",   label = "Mythisch",            track = "myth",     rank = 1, color = "ffa335ee" },
 }
 
 -- Bonus Roll: springt auf die erste Stufe des naechsthoeheren Tracks.
