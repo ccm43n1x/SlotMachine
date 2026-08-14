@@ -13,13 +13,26 @@
 
 local AddonName, ns = ...
 
-local RADIUS   = 80      -- Abstand vom Mittelpunkt, Standard fuer runde Minimap
-local ICON     = "Interface\\Icons\\INV_Misc_Bag_10"
+local ICON = "Interface\\Icons\\INV_Misc_Bag_10"
+
+-- Abstand vom Mittelpunkt der Minimap.
+--
+-- Frueher stand hier fest 80, was zur Standard-Minimap passt. Bei ersetzten
+-- Minimaps wie der von EllesmereUI stimmt das nicht: Ist die Karte breiter,
+-- liegt der Knopf mitten darauf und verschwindet hinter dem Kartenmaterial.
+-- Deshalb wird der Radius aus der tatsaechlichen Groesse abgeleitet.
+local function Radius()
+    local w = 140
+    pcall(function() w = Minimap:GetWidth() or 140 end)
+    return (w / 2) + 12
+end
 
 local btn = CreateFrame("Button", "SlotMachineMinimapButton", Minimap)
 btn:SetSize(31, 31)
-btn:SetFrameStrata("MEDIUM")
-btn:SetFrameLevel(8)
+-- Ueber der Minimap, nicht darin. MEDIUM reichte bei ersetzten Minimaps nicht
+-- immer aus, deren eigene Elemente lagen teilweise darueber.
+btn:SetFrameStrata("HIGH")
+btn:SetFrameLevel(20)
 btn:RegisterForClicks("AnyUp")
 btn:RegisterForDrag("LeftButton")
 btn:SetMovable(true)
@@ -43,9 +56,9 @@ highlight:SetBlendMode("ADD")
 
 local function Place(angle)
     local rad = math.rad(angle)
+    local r = Radius()
     btn:ClearAllPoints()
-    btn:SetPoint("CENTER", Minimap, "CENTER",
-        RADIUS * math.cos(rad), RADIUS * math.sin(rad))
+    btn:SetPoint("CENTER", Minimap, "CENTER", r * math.cos(rad), r * math.sin(rad))
 end
 
 -- Ziehen: Der Winkel ergibt sich aus der Cursorposition relativ zur Mitte der
@@ -112,4 +125,33 @@ end
 
 function ns.Minimap:IsHidden()
     return SlotMachineDB.hideMinimap and true or false
+end
+
+-- Diagnose. Sagt, ob der Knopf existiert, wo er sitzt und wie gross die
+-- Minimap ist. Bei ersetzten Minimaps ist genau das die entscheidende Frage.
+function ns.Minimap:Debug()
+    local say = (ns.Scanner and ns.Scanner.Say) or print
+    say("Minimap-Knopf:")
+    say("   existiert: " .. tostring(btn ~= nil))
+    say("   sichtbar:  " .. tostring(btn and btn:IsShown()))
+    say("   versteckt per Einstellung: " .. tostring(SlotMachineDB.hideMinimap and true or false))
+    local w, h = 0, 0
+    pcall(function() w, h = Minimap:GetWidth(), Minimap:GetHeight() end)
+    say(string.format("   Minimap: %.0f x %.0f, Radius %.0f", w, h, Radius()))
+    say("   Winkel: " .. tostring(SlotMachineDB.minimapAngle))
+    local p, _, _, x, y = nil, nil, nil, 0, 0
+    pcall(function() p, _, _, x, y = btn:GetPoint() end)
+    say(string.format("   Position: %s bei %.0f / %.0f", tostring(p), x or 0, y or 0))
+    say("   Parent: " .. tostring(btn and btn:GetParent() and btn:GetParent():GetName()))
+    -- Notausgang: in die Bildschirmmitte setzen, dann ist er garantiert da
+    say("Mit |cffffd100/sm minimap reset|r springt er auf eine sichere Position.")
+end
+
+-- Setzt Winkel und Position zurueck. Hilft, wenn der Knopf durch eine
+-- ersetzte Minimap an einer unerreichbaren Stelle gelandet ist.
+function ns.Minimap:Reset()
+    SlotMachineDB.minimapAngle = 200
+    SlotMachineDB.hideMinimap = nil
+    Place(200)
+    btn:Show()
 end
