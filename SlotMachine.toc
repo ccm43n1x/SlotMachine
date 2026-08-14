@@ -10,6 +10,7 @@
 # Reihenfolge wie bei Chrissi's Addon: Inhalt zuerst, Logik danach.
 # data.lua wird von tools/generate-data.js erzeugt, nicht von Hand gepflegt.
 data.lua
+tracks.lua
 scanner.lua
 scanner_full.lua
 ui.lua

@@ -23,6 +23,12 @@ local DEFAULTS = {
     showMarks    = nil,        -- Zeichen zusaetzlich zum farbigen Rahmen
     minimapAngle = 200,        -- Position des Minimap-Knopfes als Winkel
     hideMinimap  = nil,
+    -- Track-Waehler. Getrennt fuer Dungeon und Raid, weil die Stufen nichts
+    -- miteinander zu tun haben. Standard ist der aktuelle Pre-Season-Stand:
+    -- M0 gibt Champion 1/6, im Raid ist Normal der uebliche Einstieg.
+    dungeonSource = "m0",
+    raidSource    = "normal",
+    bonusRoll     = nil,
 }
 
 local CHAR_DEFAULTS = {

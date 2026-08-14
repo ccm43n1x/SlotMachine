@@ -48,7 +48,11 @@ local INK     = "ffd6d2c8"
 local INK_DIM = "ff8d887e"
 local GREEN   = "ff0ca30c"
 
-local WIDTH, HEIGHT = 620, 560
+-- Breite muss die komplette Filterleiste tragen: Slot, zwei Reiter, Spec und
+-- Quelle nebeneinander. Die Hoehe ist nur der Startwert, sie wird nach jedem
+-- Aufbau an den Inhalt angepasst (siehe FitHeight).
+local WIDTH, HEIGHT = 720, 560
+local MIN_HEIGHT, MAX_HEIGHT = 220, 780
 local PAD           = 14
 local ICON          = 26      -- Kantenlaenge eines Item-Icons
 local ICON_GAP      = 3
@@ -153,7 +157,30 @@ local EQUIP_SLOTS = {
     INVTYPE_SHIELD = { 17 }, INVTYPE_HOLDABLE = { 17 },
 }
 
+-- Welche Quelle ist gerade gewaehlt? Getrennt fuer Dungeon und Raid, weil die
+-- Stufen dort nichts miteinander zu tun haben.
+local function CurrentSource()
+    local list = (currentTab == "RAID") and ns.SOURCES_RAID or ns.SOURCES_DUNGEON
+    local key  = (currentTab == "RAID") and SlotMachineDB.raidSource or SlotMachineDB.dungeonSource
+    for _, s in ipairs(list) do
+        if s.key == key then return s end
+    end
+    return list[1]
+end
+
+local function SetCurrentSource(key)
+    if currentTab == "RAID" then
+        SlotMachineDB.raidSource = key
+    else
+        SlotMachineDB.dungeonSource = key
+    end
+end
+
+-- Itemlevel des Items auf dem gewaehlten Niveau. Ohne Track-Auswahl faellt es
+-- auf das Basis-Level zurueck, das der Client kennt.
 local function ItemLevelOf(itemID)
+    local resolved = ns.ResolveSource and ns.ResolveSource(CurrentSource(), SlotMachineDB.bonusRoll)
+    if resolved and resolved.ilvl then return resolved.ilvl end
     if not (C_Item and C_Item.GetDetailedItemLevelInfo) then return nil end
     local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, itemID)
     return ok and ilvl or nil
@@ -634,16 +661,12 @@ spbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
 AddEdges(specMenu)
 specMenu.entries = {}
 
--- Untermenue fuer die Spezialisierungen einer Klasse
-local subMenu = CreateFrame("Frame", nil, frame)
-subMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-subMenu:Hide()
-local submbg = subMenu:CreateTexture(nil, "BACKGROUND")
-submbg:SetAllPoints()
-submbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
-AddEdges(subMenu)
-subMenu.entries = {}
-
+-- Ein Menueeintrag. Steht bewusst HIER, vor allen Menues die ihn benutzen.
+--
+-- Waere er weiter unten deklariert, loeste der Name innerhalb der frueheren
+-- Funktionen auf eine nicht existierende globale Variable auf. Genau dieser
+-- Fehler hat in Chrissi's Addon v0.8.0 die Deckkraft-Knoepfe lahmgelegt:
+-- Tooltip ging, Tastenkuerzel ging, der Klick lief ins Leere.
 local function MenuEntry(parent, i, width)
     local e = parent.entries[i]
     if not e then
@@ -665,6 +688,85 @@ local function MenuEntry(parent, i, width)
     e:Show()
     return e
 end
+
+-- Track-Waehler ---------------------------------------------------------------
+
+local srcBtn = CreateFrame("Button", nil, frame)
+srcBtn:SetSize(150, 22)
+srcBtn:SetPoint("LEFT", specBtn, "RIGHT", 8, 0)
+srcBtn.fill = srcBtn:CreateTexture(nil, "BACKGROUND")
+srcBtn.fill:SetAllPoints()
+srcBtn.fill:SetColorTexture(SURFACE[1], SURFACE[2], SURFACE[3], 0.85)
+AddEdges(srcBtn)
+srcBtn.text = srcBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+srcBtn.text:SetPoint("LEFT", srcBtn, "LEFT", 8, 0)
+srcBtn.arrow = srcBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+srcBtn.arrow:SetPoint("RIGHT", srcBtn, "RIGHT", -8, 0)
+srcBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
+
+local srcMenu = CreateFrame("Frame", nil, frame)
+srcMenu:SetFrameStrata("DIALOG")
+srcMenu:Hide()
+local srcbg = srcMenu:CreateTexture(nil, "BACKGROUND")
+srcbg:SetAllPoints()
+srcbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
+AddEdges(srcMenu)
+srcMenu.entries = {}
+
+local function BuildSourceMenu()
+    local list = (currentTab == "RAID") and ns.SOURCES_RAID or ns.SOURCES_DUNGEON
+    for _, e in ipairs(srcMenu.entries) do e:Hide() end
+
+    -- Ein Eintrag je Quelle, plus der Bonus-Roll-Umschalter am Ende
+    srcMenu:SetSize(200, (#list + 1) * 20 + 8)
+    srcMenu:ClearAllPoints()
+    srcMenu:SetPoint("TOPLEFT", srcBtn, "BOTTOMLEFT", 0, -2)
+
+    local cur = CurrentSource()
+    for i, s in ipairs(list) do
+        local e = MenuEntry(srcMenu, i, 200)
+        local r = ns.ResolveSource(s, SlotMachineDB.bonusRoll)
+        local lvl = r and r.ilvl or "?"
+        local col = (s.key == cur.key) and ACCENT or INK
+        e.text:SetText("|c" .. col .. s.label .. "|r")
+        e.arrow:SetText("|c" .. INK_DIM .. lvl .. "|r")
+        e:SetScript("OnClick", function()
+            SetCurrentSource(s.key)
+            srcMenu:Hide(); ns.UI:Render()
+        end)
+    end
+
+    local eB = MenuEntry(srcMenu, #list + 1, 200)
+    eB.text:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. "Als Bonus Roll rechnen|r")
+    eB.arrow:SetText(SlotMachineDB.bonusRoll and ("|c" .. ACCENT .. "an|r") or ("|c" .. INK_DIM .. "aus|r"))
+    eB:SetScript("OnClick", function()
+        SlotMachineDB.bonusRoll = (not SlotMachineDB.bonusRoll) or nil
+        BuildSourceMenu()
+        ns.UI:Render()
+    end)
+end
+
+srcBtn:SetScript("OnClick", function()
+    if srcMenu:IsShown() then srcMenu:Hide() else BuildSourceMenu(); srcMenu:Show() end
+end)
+srcBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Woher kommt das Item")
+    GameTooltip:AddLine("Bestimmt, mit welchem Itemlevel gerechnet wird. Der Tooltip zeigt dann die echten Werte dieser Stufe.", 0.65, 0.63, 0.58, true)
+    GameTooltip:AddLine("Bonus Roll springt auf die erste Stufe des nächsthöheren Tracks.", 0.65, 0.63, 0.58, true)
+    GameTooltip:Show()
+end)
+srcBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Untermenue fuer die Spezialisierungen einer Klasse
+local subMenu = CreateFrame("Frame", nil, frame)
+subMenu:SetFrameStrata("FULLSCREEN_DIALOG")
+subMenu:Hide()
+local submbg = subMenu:CreateTexture(nil, "BACKGROUND")
+submbg:SetAllPoints()
+submbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
+AddEdges(subMenu)
+subMenu.entries = {}
 
 -- Klassenfarbe. Blizzard liefert sie mit, also nicht selbst nachbauen.
 local function ClassColorHex(classFile)
@@ -982,6 +1084,16 @@ function UI:Render()
     slotBtn.text:SetText("|c" .. (currentSlot == "ALL" and INK or ACCENT) .. lbl .. "|r")
     specBtn.text:SetText("|c" .. ((currentSpec or currentClass) and ACCENT or INK) .. FilterLabel() .. "|r")
 
+    -- Track-Waehler beschriften: Quelle plus resultierendes Itemlevel
+    local src = CurrentSource()
+    local res = ns.ResolveSource and ns.ResolveSource(src, SlotMachineDB.bonusRoll)
+    srcBtn.text:SetText("|c" .. INK .. (src and src.label or "?") .. "|r")
+    if res then
+        srcBtn.arrow:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. res.ilvl .. "|r")
+    else
+        srcBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
+    end
+
     -- Tabs
     for _, t in ipairs({ tabDungeon, tabRaid }) do
         local active = (currentTab == t.key)
@@ -1128,8 +1240,28 @@ function UI:Render()
             end)
             b:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetItemByID(itemID)
+
+                -- Tooltip auf dem gewaehlten Niveau. Der Link mit angehaengter
+                -- Bonus-ID laesst WoW selbst rendern, samt korrekter
+                -- Sekundaerstats. Faellt der Aufbau durch, greift der normale
+                -- Weg ueber die Item-ID.
+                local src = ns.ResolveSource and ns.ResolveSource(CurrentSource(), SlotMachineDB.bonusRoll)
+                local shown = false
+                if src and src.bonusId and ns.BuildItemLink then
+                    local link = ns.BuildItemLink(itemID, src.bonusId)
+                    shown = pcall(GameTooltip.SetHyperlink, GameTooltip, link)
+                end
+                if not shown then GameTooltip:SetItemByID(itemID) end
+
                 GameTooltip:AddLine(" ")
+                if src then
+                    GameTooltip:AddLine(string.format("%s %d/6  ·  Stufe %d",
+                        src.track, src.rank, src.ilvl), HexToRGB(ACCENT))
+                    if SlotMachineDB.bonusRoll then
+                        GameTooltip:AddLine("mit Bonus Roll gerechnet", 0.65, 0.63, 0.58)
+                    end
+                end
+
                 local cur = TierOf(itemID)
                 if cur then
                     GameTooltip:AddLine("Markiert: " .. TIERS[cur].label, HexToRGB(TIERS[cur].color))
@@ -1154,6 +1286,17 @@ function UI:Render()
     end
 
     content:SetSize(WIDTH - PAD * 2 - 24, math.max(1, y))
+
+    -- Fensterhoehe an den Inhalt anpassen.
+    --
+    -- Der Unterschied ist erheblich: Dungeons stehen als acht zusammengefasste
+    -- Zeilen da, Raids als gut vierzig Boss-Zeilen. Eine feste Hoehe laesst im
+    -- einen Fall die halbe Flaeche leer und erzwingt im anderen staendiges
+    -- Scrollen. Nach oben gedeckelt, damit das Fenster nie ueber den
+    -- Bildschirm hinauswaechst, nach unten, damit es nicht zum Streifen wird.
+    local chrome = PAD + 56 + PAD + 22          -- Kopf, Filterleiste, Fusszeile
+    local want   = chrome + y + 6
+    frame:SetHeight(math.max(MIN_HEIGHT, math.min(MAX_HEIGHT, want)))
 end
 
 -- ----------------------------------------------------------------------------
