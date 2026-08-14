@@ -293,7 +293,8 @@ end
 
 local currentTab  = "DUNGEON"   -- oder "RAID"
 local currentSlot = "ALL"
-local currentSpec = nil         -- nil heisst: alle Spezialisierungen
+local currentSpec  = nil        -- nil heisst: alle Spezialisierungen
+local currentClass = nil        -- gesetzt, wenn eine ganze Klasse gewaehlt ist
 
 -- ----------------------------------------------------------------------------
 -- Spezialisierungen
@@ -314,33 +315,6 @@ local function SpecsOfClass(classID)
     return out
 end
 
--- Standardmaessig nur die eigene Klasse. Wer fuer Twinks oder Mitspieler
--- schauen will, schaltet in den Einstellungen alle Klassen zu. Die Liste wird
--- dann rund vierzig Eintraege lang, deshalb ist sie nicht der Standard.
-local function MySpecs()
-    if SlotMachineDB.allClasses then
-        local out = {}
-        local numClasses = (GetNumClasses and GetNumClasses()) or 13
-        for classID = 1, numClasses do
-            local className = nil
-            pcall(function()
-                local info = C_CreatureInfo and C_CreatureInfo.GetClassInfo
-                    and C_CreatureInfo.GetClassInfo(classID)
-                className = info and info.className
-            end)
-            for _, s in ipairs(SpecsOfClass(classID)) do
-                s.className = className
-                out[#out + 1] = s
-            end
-        end
-        return out
-    end
-
-    local _, _, classID = UnitClass("player")
-    if not classID then return {} end
-    return SpecsOfClass(classID)
-end
-
 local function ActiveSpecID()
     local idx = GetSpecialization and GetSpecialization()
     if not idx then return nil end
@@ -348,26 +322,54 @@ local function ActiveSpecID()
     return ok and specID or nil
 end
 
-local function SpecName(specID)
-    if not specID then return "Alle Specs" end
-    local ok, _, name = pcall(GetSpecializationInfoByID, specID)
-    return (ok and name) or ("Spec " .. specID)
+local function FilterLabel()
+    if currentSpec then
+        local ok, _, name = pcall(GetSpecializationInfoByID, currentSpec)
+        return (ok and name) or ("Spec " .. currentSpec)
+    end
+    if currentClass then
+        local info = C_CreatureInfo and C_CreatureInfo.GetClassInfo
+            and C_CreatureInfo.GetClassInfo(currentClass)
+        return (info and info.className) or ("Klasse " .. currentClass)
+    end
+    return "Alle Specs"
 end
 
--- Kann die gewaehlte Spec dieses Item tragen?
+-- Alle Spec-IDs einer Klasse, fuer den Fall dass eine ganze Klasse gewaehlt ist
+local function SpecIDsOfClass(classID)
+    local out = {}
+    local n = 0
+    pcall(function() n = GetNumSpecializationsForClassID(classID) or 0 end)
+    for i = 1, n do
+        local ok, specID = pcall(GetSpecializationInfoForClassID, classID, i)
+        if ok and specID then out[specID] = true end
+    end
+    return out
+end
+
+-- Kann die gewaehlte Spec oder Klasse dieses Item tragen?
 local function PassesSpec(itemID)
-    if not currentSpec then return true end
+    if not currentSpec and not currentClass then return true end
+
     local rec = ns.ITEMS and ns.ITEMS[itemID]
     if not rec then return true end
     if rec.s == nil then return true end        -- keine Angabe, nicht ausblenden
     if rec.s == "*" then return true end        -- jede Spec
-    if type(rec.s) == "table" then
+    if type(rec.s) ~= "table" then return true end
+
+    if currentSpec then
         for _, id in ipairs(rec.s) do
             if id == currentSpec then return true end
         end
         return false
     end
-    return true
+
+    -- Ganze Klasse: trifft zu, sobald IRGENDEINE ihrer Specs das Item tragen kann
+    local wanted = SpecIDsOfClass(currentClass)
+    for _, id in ipairs(rec.s) do
+        if wanted[id] then return true end
+    end
+    return false
 end
 
 -- ----------------------------------------------------------------------------
@@ -632,53 +634,156 @@ spbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
 AddEdges(specMenu)
 specMenu.entries = {}
 
-local function BuildSpecMenu()
-    local list = MySpecs()
-    local rows = #list + 1                     -- plus "Alle Specs"
-    -- Bei allen Klassen wird die Liste rund vierzig Eintraege lang und muesste
-    -- unten aus dem Bildschirm laufen. Deshalb breiter und nach oben verankert.
-    local wide = SlotMachineDB.allClasses
-    specMenu:SetSize(wide and 210 or 140, rows * 20 + 8)
-    specMenu:ClearAllPoints()
-    specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
-    for _, e in ipairs(specMenu.entries) do e:SetWidth((wide and 210 or 140) - 4) end
+-- Untermenue fuer die Spezialisierungen einer Klasse
+local subMenu = CreateFrame("Frame", nil, frame)
+subMenu:SetFrameStrata("FULLSCREEN_DIALOG")
+subMenu:Hide()
+local submbg = subMenu:CreateTexture(nil, "BACKGROUND")
+submbg:SetAllPoints()
+submbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
+AddEdges(subMenu)
+subMenu.entries = {}
 
-    local function entry(i)
-        local e = specMenu.entries[i]
-        if e then return e end
-        e = CreateFrame("Button", nil, specMenu)
-        e:SetSize(206, 20)
-        e:SetPoint("TOPLEFT", specMenu, "TOPLEFT", 2, -(2 + (i - 1) * 20))
+local function MenuEntry(parent, i, width)
+    local e = parent.entries[i]
+    if not e then
+        e = CreateFrame("Button", nil, parent)
         e.fill = e:CreateTexture(nil, "BACKGROUND")
         e.fill:SetAllPoints()
         e.fill:SetColorTexture(1, 1, 1, 0)
         e.text = e:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         e.text:SetPoint("LEFT", e, "LEFT", 8, 0)
-        e:SetScript("OnEnter", function(self) self.fill:SetColorTexture(1, 1, 1, 0.08) end)
-        e:SetScript("OnLeave", function(self) self.fill:SetColorTexture(1, 1, 1, 0) end)
-        specMenu.entries[i] = e
-        return e
+        e.arrow = e:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        e.arrow:SetPoint("RIGHT", e, "RIGHT", -6, 0)
+        parent.entries[i] = e
     end
+    e:SetSize(width - 4, 20)
+    e:SetPoint("TOPLEFT", parent, "TOPLEFT", 2, -(2 + (i - 1) * 20))
+    e.arrow:SetText("")
+    e:SetScript("OnEnter", function(self) self.fill:SetColorTexture(1, 1, 1, 0.08) end)
+    e:SetScript("OnLeave", function(self) self.fill:SetColorTexture(1, 1, 1, 0) end)
+    e:Show()
+    return e
+end
 
-    local e1 = entry(1)
-    e1.text:SetText("|c" .. INK .. "Alle Specs|r")
-    e1:SetScript("OnClick", function()
-        currentSpec = nil; specMenu:Hide(); ns.UI:Render()
+-- Klassenfarbe. Blizzard liefert sie mit, also nicht selbst nachbauen.
+local function ClassColorHex(classFile)
+    local c = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if not c then return INK end
+    return string.format("ff%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255)
+end
+
+local function OpenSubMenu(anchor, classInfo)
+    local specs = SpecsOfClass(classInfo.classID)
+    subMenu:SetSize(160, (#specs + 1) * 20 + 8)
+    subMenu:ClearAllPoints()
+    subMenu:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 2, 2)
+
+    for _, e in ipairs(subMenu.entries) do e:Hide() end
+
+    -- Erster Eintrag: die ganze Klasse, also alle ihre Specs zusammen
+    local eAll = MenuEntry(subMenu, 1, 160)
+    eAll.text:SetText("|c" .. INK_DIM .. "Alle Spezialisierungen|r")
+    eAll:SetScript("OnClick", function()
+        currentSpec = nil
+        currentClass = classInfo.classID
+        subMenu:Hide(); specMenu:Hide(); ns.UI:Render()
     end)
-    e1:Show()
 
     local active = ActiveSpecID()
-    for i, s in ipairs(list) do
-        local e = entry(i + 1)
+    for i, s in ipairs(specs) do
+        local e = MenuEntry(subMenu, i + 1, 160)
         local suffix = (s.id == active) and ("  |c" .. INK_DIM .. "(aktiv)|r") or ""
-        -- Bei allen Klassen den Klassennamen davor, sonst weiss man bei
-        -- "Frost" nicht ob Magier oder Todesritter gemeint ist.
-        local prefix = s.className and ("|c" .. INK_DIM .. s.className .. " |r") or ""
-        e.text:SetText(prefix .. "|c" .. INK .. s.name .. "|r" .. suffix)
+        e.text:SetText("|c" .. INK .. s.name .. "|r" .. suffix)
         e:SetScript("OnClick", function()
-            currentSpec = s.id; specMenu:Hide(); ns.UI:Render()
+            currentSpec = s.id
+            currentClass = nil
+            subMenu:Hide(); specMenu:Hide(); ns.UI:Render()
         end)
-        e:Show()
+    end
+
+    subMenu:Show()
+end
+
+-- Beide Menues schliessen, sobald die Maus keines von beiden mehr beruehrt.
+-- Ohne das bliebe das Untermenue stehen, sobald man daneben faehrt.
+specMenu:SetScript("OnUpdate", function(self)
+    if not self:IsShown() then return end
+    if not self:IsMouseOver() and not subMenu:IsMouseOver() and not specBtn:IsMouseOver() then
+        subMenu:Hide()
+    end
+end)
+
+local function BuildSpecMenu()
+    for _, e in ipairs(specMenu.entries) do e:Hide() end
+    subMenu:Hide()
+
+    if not SlotMachineDB.allClasses then
+        -- Nur die eigene Klasse: flache Liste, kein Baum noetig
+        local list = SpecsOfClass(select(3, UnitClass("player")))
+        specMenu:SetSize(150, (#list + 1) * 20 + 8)
+        specMenu:ClearAllPoints()
+        specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
+
+        local e1 = MenuEntry(specMenu, 1, 150)
+        e1.text:SetText("|c" .. INK .. "Alle Specs|r")
+        e1:SetScript("OnClick", function()
+            currentSpec, currentClass = nil, nil
+            specMenu:Hide(); ns.UI:Render()
+        end)
+
+        local active = ActiveSpecID()
+        for i, s in ipairs(list) do
+            local e = MenuEntry(specMenu, i + 1, 150)
+            local suffix = (s.id == active) and ("  |c" .. INK_DIM .. "(aktiv)|r") or ""
+            e.text:SetText("|c" .. INK .. s.name .. "|r" .. suffix)
+            e:SetScript("OnClick", function()
+                currentSpec = s.id; currentClass = nil
+                specMenu:Hide(); ns.UI:Render()
+            end)
+        end
+        return
+    end
+
+    -- Alle Klassen: Baum. Vierzig Specs als flache Liste sind unbrauchbar,
+    -- also erste Ebene Klassen, zweite Ebene deren Spezialisierungen.
+    local classes = {}
+    local numClasses = (GetNumClasses and GetNumClasses()) or 13
+    for classID = 1, numClasses do
+        local info = C_CreatureInfo and C_CreatureInfo.GetClassInfo
+            and C_CreatureInfo.GetClassInfo(classID)
+        if info then
+            classes[#classes + 1] = {
+                classID = classID, name = info.className, file = info.classFile,
+            }
+        end
+    end
+    table.sort(classes, function(a, b) return a.name < b.name end)
+
+    specMenu:SetSize(160, (#classes + 1) * 20 + 8)
+    specMenu:ClearAllPoints()
+    specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
+
+    local e1 = MenuEntry(specMenu, 1, 160)
+    e1.text:SetText("|c" .. INK .. "Alle Specs|r")
+    e1:SetScript("OnClick", function()
+        currentSpec, currentClass = nil, nil
+        subMenu:Hide(); specMenu:Hide(); ns.UI:Render()
+    end)
+    e1:HookScript("OnEnter", function() subMenu:Hide() end)
+
+    for i, c in ipairs(classes) do
+        local e = MenuEntry(specMenu, i + 1, 160)
+        e.text:SetText("|c" .. ClassColorHex(c.file) .. c.name .. "|r")
+        e.arrow:SetText("|c" .. INK_DIM .. ">|r")
+        e:HookScript("OnEnter", function(self) OpenSubMenu(self, c) end)
+        -- Klick auf die Klasse selbst waehlt ebenfalls die ganze Klasse aus,
+        -- damit man nicht zwingend ins Untermenue muss.
+        e:SetScript("OnClick", function()
+            currentSpec = nil
+            currentClass = c.classID
+            subMenu:Hide(); specMenu:Hide(); ns.UI:Render()
+        end)
     end
 end
 
@@ -875,7 +980,7 @@ function UI:Render()
     local lbl = "Alle Slots"
     for _, g in ipairs(SLOT_GROUPS) do if g.key == currentSlot then lbl = g.label end end
     slotBtn.text:SetText("|c" .. (currentSlot == "ALL" and INK or ACCENT) .. lbl .. "|r")
-    specBtn.text:SetText("|c" .. (currentSpec and ACCENT or INK) .. SpecName(currentSpec) .. "|r")
+    specBtn.text:SetText("|c" .. ((currentSpec or currentClass) and ACCENT or INK) .. FilterLabel() .. "|r")
 
     -- Tabs
     for _, t in ipairs({ tabDungeon, tabRaid }) do
