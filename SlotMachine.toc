@@ -8,7 +8,9 @@
 ## SavedVariablesPerCharacter: SlotMachineCharDB
 
 # Reihenfolge wie bei Chrissi's Addon: Inhalt zuerst, Logik danach.
-# data.lua wird spaeter vom Generator erzeugt und existiert noch nicht.
+# data.lua wird von tools/generate-data.js erzeugt, nicht von Hand gepflegt.
+data.lua
 scanner.lua
 scanner_full.lua
+ui.lua
 main.lua

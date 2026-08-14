@@ -17,12 +17,22 @@ SlotMachineCharDB = SlotMachineCharDB or {}
 local DEFAULTS = {
     scanResults = {},   -- Rohdaten des Entwickler-Scans
     scanStamp   = nil,  -- wann zuletzt gescannt
+    point = "CENTER", relPoint = "CENTER", x = 0, y = 0,
+}
+
+local CHAR_DEFAULTS = {
+    wanted = {},        -- Wunschliste, pro Charakter
 }
 
 local function ApplyDefaults()
     for k, v in pairs(DEFAULTS) do
         if SlotMachineDB[k] == nil then
             SlotMachineDB[k] = (type(v) == "table") and {} or v
+        end
+    end
+    for k, v in pairs(CHAR_DEFAULTS) do
+        if SlotMachineCharDB[k] == nil then
+            SlotMachineCharDB[k] = (type(v) == "table") and {} or v
         end
     end
 end
@@ -109,6 +119,9 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
     elseif cmd == "scan" then
         ns.FullScan:Run()
 
+    elseif cmd == "" then
+        ns.UI:Toggle()
+
     else
         -- GetAddOnMetadata ist in aktuellen Clients nach C_AddOns umgezogen.
         -- Die globale Fassung existiert nicht mehr, deshalb stand hier "?".
@@ -137,7 +150,12 @@ init:RegisterEvent("ADDON_LOADED")
 init:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == AddonName then
         ApplyDefaults()
-        Say("geladen. Tippe |cffffd100/sm|r")
+        if ns.UI and ns.UI.RestorePosition then ns.UI:RestorePosition() end
+
+        local n = 0
+        for _ in pairs(ns.ITEMS or {}) do n = n + 1 end
+        Say("geladen, " .. n .. " Items in der Datenbank. Tippe |cffffd100/sm|r")
+
         self:UnregisterEvent("ADDON_LOADED")
     end
 end)
