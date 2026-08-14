@@ -240,8 +240,20 @@ end
 local function ResolvedForBoss(encounterID)
     local res, src = ResolvedCurrent()
     if not res or not encounterID or not ns.BossAdjust then return res end
+
+    -- Beim Bonus Roll NICHT auf den Boss anpassen.
+    --
+    -- Der Roll liefert die Belohnung der Grossen Schatzkammer, und die haengt
+    -- allein an der Schwierigkeit, nicht daran welchen Boss man legt. Die
+    -- bossabhaengige Staffelung gilt nur fuer direkte Drops.
+    --
+    -- Vorher wurde beides hintereinander angewandt: ResolveSource lieferte
+    -- korrekt Myth 6/6, danach setzte BossAdjust den Rang wieder auf den des
+    -- Bosses zurueck. Auf Mythisch aenderte der Bonus Roll deshalb gar nichts.
     local useRoll = SlotMachineDB.bonusRoll and ns.HasBonusRoll(src)
-    return ns.BossAdjust(res, encounterID, ns.TrackKeyOf(src, useRoll))
+    if useRoll then return res end
+
+    return ns.BossAdjust(res, encounterID, ns.TrackKeyOf(src, false))
 end
 
 -- Itemlevel des Items auf dem gewaehlten Niveau. Ohne Track-Auswahl faellt es
@@ -920,20 +932,17 @@ srcbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
 AddEdges(srcMenu)
 srcMenu.entries = {}
 
--- Vorwaertsdeklaration: BuildSourceMenu unten haelt den Haken synchron, wird
--- aber vor dessen Erzeugung definiert. Ohne diese Zeile loeste der Name dort
--- auf eine nicht existierende globale Variable auf und der Haken bliebe beim
--- Umschalten ueber das Menue stehen.
-local rollBtn
-
 local function BuildSourceMenu()
     -- Tab festhalten, fuer den dieses Menue gilt. Siehe SetCurrentSource.
     local builtFor = currentTab
     local list = SourceList()
     for _, e in ipairs(srcMenu.entries) do e:Hide() end
 
-    -- Ein Eintrag je Quelle, plus der Bonus-Roll-Umschalter am Ende
-    srcMenu:SetSize(200, (#list + 1) * 20 + 8)
+    -- Nur die Quellen. Der Bonus-Roll-Umschalter stand hier frueher zusaetzlich
+    -- am Ende, sitzt aber inzwischen als eigener Haken neben dem Waehler. Zwei
+    -- Bedienelemente fuer dieselbe Einstellung sind eine Fehlerquelle: Man
+    -- weiss nie, welches gerade den Zustand haelt.
+    srcMenu:SetSize(200, #list * 20 + 8)
     srcMenu:ClearAllPoints()
     srcMenu:SetPoint("TOPLEFT", srcBtn, "BOTTOMLEFT", 0, -2)
 
@@ -960,17 +969,6 @@ local function BuildSourceMenu()
         end)
     end
 
-    -- Bleibt zusaetzlich im Menue, weil dort die Auswirkung auf ALLE Stufen
-    -- gleichzeitig sichtbar wird.
-    local eB = MenuEntry(srcMenu, #list + 1, 200)
-    eB.text:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. "Als Bonus Roll rechnen|r")
-    eB.arrow:SetText(SlotMachineDB.bonusRoll and ("|c" .. ACCENT .. "an|r") or ("|c" .. INK_DIM .. "aus|r"))
-    eB:SetScript("OnClick", function()
-        SlotMachineDB.bonusRoll = (not SlotMachineDB.bonusRoll) or nil
-        if rollBtn and rollBtn.Refresh then rollBtn:Refresh() end
-        BuildSourceMenu()
-        ns.UI:Render()
-    end)
 end
 
 -- Bonus-Roll-Haken direkt neben der Stufe.
@@ -979,7 +977,7 @@ end
 -- Bonus Roll auf dieser Stufe" ist genau die Frage, die man mehrfach
 -- hintereinander stellt, waehrend man Stufen durchprobiert. Zwei Klicks ins
 -- Menue waeren dafuer zu viel.
-rollBtn = CreateFrame("Button", nil, frame)
+local rollBtn = CreateFrame("Button", nil, frame)
 rollBtn:SetSize(96, 22)
 rollBtn:SetPoint("LEFT", srcBtn, "RIGHT", 6, 0)
 rollBtn.fill = rollBtn:CreateTexture(nil, "BACKGROUND")
