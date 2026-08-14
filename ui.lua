@@ -69,6 +69,50 @@ local function HexToRGB(hex)
            tonumber(hex:sub(5, 6), 16) / 255
 end
 
+-- ----------------------------------------------------------------------------
+-- Menues schliessen sich, sobald die Maus sie verlaesst
+-- ----------------------------------------------------------------------------
+-- Vorher blieben sie offen, bis irgendwo hineingeklickt wurde. Das fuehrte zu
+-- einem verwirrenden Zustand: Man klickt daneben, etwa auf den Raid-Reiter,
+-- der Inhalt dahinter aendert sich, aber das offene Menue zeigt weiter die
+-- alte Liste. Es sieht dann so aus, als reagiere das Add-on nicht.
+--
+-- Die Verzoegerung ist noetig, weil zwischen Knopf und Menue eine kleine
+-- Luecke liegt. Ohne sie schnappt das Menue zu, waehrend man mit der Maus
+-- hinueberfaehrt.
+local AUTO_HIDE_DELAY = 0.4
+
+local function AutoHide(menu, owner, extras)
+    menu.hideTimer = 0
+    menu:HookScript("OnShow", function(self) self.hideTimer = 0 end)
+    menu:SetScript("OnUpdate", function(self, elapsed)
+        if not self:IsShown() then return end
+
+        local over = self:IsMouseOver() or (owner and owner:IsMouseOver())
+        if not over and extras then
+            for _, f in ipairs(extras) do
+                if f and f:IsShown() and f:IsMouseOver() then
+                    over = true
+                    break
+                end
+            end
+        end
+
+        if over then
+            self.hideTimer = 0
+            return
+        end
+
+        self.hideTimer = self.hideTimer + elapsed
+        if self.hideTimer > AUTO_HIDE_DELAY then
+            self:Hide()
+            if extras then
+                for _, f in ipairs(extras) do if f then f:Hide() end end
+            end
+        end
+    end)
+end
+
 local function AddEdges(f, alpha)
     local r, g, b = EDGE[1], EDGE[2], EDGE[3]
     local a = alpha or EDGE[4]
@@ -820,6 +864,8 @@ for i, g in ipairs(SLOT_GROUPS) do
     end)
 end
 
+AutoHide(slotMenu, slotBtn)
+
 slotBtn:SetScript("OnClick", function()
     if slotMenu:IsShown() then slotMenu:Hide() else slotMenu:Show() end
 end)
@@ -1026,6 +1072,8 @@ end)
 rollBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 rollBtn:Refresh()
 
+AutoHide(srcMenu, srcBtn)
+
 srcBtn:SetScript("OnClick", function()
     if srcMenu:IsShown() then srcMenu:Hide() else BuildSourceMenu(); srcMenu:Show() end
 end)
@@ -1087,14 +1135,10 @@ local function OpenSubMenu(anchor, classInfo)
     subMenu:Show()
 end
 
--- Beide Menues schliessen, sobald die Maus keines von beiden mehr beruehrt.
--- Ohne das bliebe das Untermenue stehen, sobald man daneben faehrt.
-specMenu:SetScript("OnUpdate", function(self)
-    if not self:IsShown() then return end
-    if not self:IsMouseOver() and not subMenu:IsMouseOver() and not specBtn:IsMouseOver() then
-        subMenu:Hide()
-    end
-end)
+-- Hauptmenue und Untermenue gelten als eine Einheit: Solange die Maus auf
+-- einem von beiden liegt, bleiben beide offen.
+AutoHide(specMenu, specBtn, { subMenu })
+AutoHide(subMenu, specBtn, { specMenu })
 
 local function BuildSpecMenu()
     for _, e in ipairs(specMenu.entries) do e:Hide() end
@@ -1375,15 +1419,10 @@ local function OpenTierMenu(anchor, itemID)
     tierMenu:Show()
 end
 
--- Klick ins Leere schliesst das Menue. Ohne das bliebe es stehen, bis man
--- zufaellig wieder einen Eintrag trifft.
-tierMenu:SetScript("OnShow", function(self)
-    self:SetScript("OnUpdate", function(s)
-        if not s:IsMouseOver() and not IsMouseButtonDown() then return end
-        if IsMouseButtonDown() and not s:IsMouseOver() then s:Hide() end
-    end)
-end)
-tierMenu:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+-- Auch das Rechtsklick-Menue schliesst beim Verlassen. Es hat keinen festen
+-- Ankerknopf, deshalb ohne owner: Sobald die Maus es verlaesst, laeuft die
+-- Frist. Die Verzoegerung reicht, um vom Icon hinueberzufahren.
+AutoHide(tierMenu, nil)
 
 local function GetHeader(i)
     local h = headPool[i]
