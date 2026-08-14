@@ -201,17 +201,27 @@ local function EquippedLevelFor(itemID)
     local slots = loc and EQUIP_SLOTS[loc]
     if not slots then return nil end
 
-    local worst = nil
+    local worst, empty = nil, false
     for _, slotID in ipairs(slots) do
         local link = GetInventoryItemLink and GetInventoryItemLink("player", slotID)
         if link then
             local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, link)
             if ok and ilvl and (not worst or ilvl < worst) then worst = ilvl end
         else
-            -- Leerer Platz. Alles ist besser als nichts, also Differenz gegen 0.
-            return 0
+            empty = true
         end
     end
+
+    -- Leerer Platz.
+    --
+    -- Die erste Fassung gab hier 0 zurueck, "alles ist besser als nichts".
+    -- Rechnerisch stimmt das, in der Anzeige stand dann aber +292 am Item, und
+    -- das liest sich wie ein gewaltiges Upgrade statt wie ein leerer Slot.
+    -- Betroffen war vor allem die Nebenhand, die bei Zweihandwaffen frei ist.
+    --
+    -- nil bedeutet: kein sinnvoller Vergleich moeglich. Die Anzeige zeigt dann
+    -- das absolute Itemlevel statt einer Differenz.
+    if empty and not worst then return nil end
     return worst
 end
 
@@ -820,12 +830,14 @@ local function BuildSourceMenu()
         local lvl = r and r.ilvl or "?"
         local col = (s.key == cur.key) and ACCENT or INK
         e.text:SetText("|c" .. col .. s.label .. "|r")
-        -- Kuerzel in der Farbe des ERGEBNIS-Tracks. Bei aktivem Bonus Roll
-        -- wandert sie mit, weil dann ein anderer Track herauskommt. Das "+"
-        -- macht sichtbar, dass hier der Bonus Roll gerechnet ist.
-        local sc = (r and r.color) or s.color or INK_DIM
+        -- Zwei Farben, zwei Aussagen: Das Kuerzel traegt die Farbe der QUELLE
+        -- (wo laufe ich), das Itemlevel die Farbe des LOOTS (was kommt dabei
+        -- heraus). Bei einem Bonus Roll faellt beides auseinander, und genau
+        -- das soll sichtbar sein.
+        local kc = ns.SourceColor(s)
+        local lc = (r and r.color) or INK_DIM
         local sh = (s.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
-        e.arrow:SetText("|c" .. sc .. sh .. "|r |c" .. INK_DIM .. lvl .. "|r")
+        e.arrow:SetText("|c" .. kc .. sh .. "|r |c" .. lc .. lvl .. "|r")
         e:SetScript("OnClick", function()
             SetCurrentSource(s.key)
             srcMenu:Hide(); ns.UI:Render()
@@ -1264,15 +1276,16 @@ function UI:Render()
     local src = CurrentSource()
     local res = ns.ResolveSource and ns.ResolveSource(src, SlotMachineDB.bonusRoll)
     if src then
-        -- Farbe vom Ergebnis-Track, nicht von der Quelle. Siehe tracks.lua.
-        local sc = (res and res.color) or src.color or INK
+        -- Kuerzel in Quellenfarbe, Beschriftung neutral
+        local kc = ns.SourceColor(src)
         local sh = (src.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
-        srcBtn.text:SetText("|c" .. sc .. sh .. "|r |c" .. INK .. src.label .. "|r")
+        srcBtn.text:SetText("|c" .. kc .. sh .. "|r |c" .. INK .. src.label .. "|r")
     else
         srcBtn.text:SetText("|c" .. INK .. "?|r")
     end
     if res then
-        srcBtn.arrow:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. res.ilvl .. "|r")
+        -- Itemlevel in der Farbe des Loots, den man dafuer bekommt
+        srcBtn.arrow:SetText("|c" .. (res.color or INK_DIM) .. res.ilvl .. "|r")
     else
         srcBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
     end

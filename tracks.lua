@@ -51,25 +51,58 @@ ns.TRACK_ORDER = { "veteran", "champion", "hero", "myth" }
 --
 -- Die Zuordnung der Schluesselstein-Stufen stammt aus Keystone Loots
 -- Suffix-Angaben ("+0", "+2 +3", "+4" ...), die dort neben jedem Rang stehen.
--- Kuerzel und Farben nach Blizzards Schwierigkeitsgraden. Die Farben sind die
--- Qualitaetsfarben, die WoW ohnehin fuer diese Stufen benutzt, damit man die
--- Rangfolge ohne Legende liest.
+-- Jede Schluesselstein-Stufe steht einzeln, keine Bereiche. Dass M2 und M3
+-- dasselbe Itemlevel geben, sieht man dann an der Zahl statt es raten zu
+-- muessen.
+--
+-- BONUS ROLL wird NICHT mehr berechnet, sondern steht als bonusTrack und
+-- bonusRank an jeder Stufe.
+--
+-- Grund: Die urspruengliche Regel "springt auf die erste Stufe des
+-- naechsthoeheren Tracks" stammt aus der eigenen Master-Notiz, dort aber im
+-- Abschnitt ueber RAIDS ("Heroic gibt ein Myth-Track-Teil"). Auf Dungeons
+-- uebertragen ergab sie Unsinn: Schon ein Schluesselstein 6 haette dann ein
+-- mythisches Teil geliefert. Aus Season 1 ist bekannt, dass mythische
+-- Belohnungen erst ab Stufe 10 fallen.
+--
+-- Deshalb steht die Zuordnung jetzt ausgeschrieben da, wo sie sich pruefen und
+-- ohne Codeaenderung korrigieren laesst.
 ns.SOURCES_DUNGEON = {
-    { key = "m0",   short = "M0",  label = "Mythisch 0",         track = "champion", rank = 1, color = "ff1eff00" },
-    { key = "m2",   short = "M2",  label = "Schlüsselstein 2-3", track = "champion", rank = 2, color = "ff1eff00" },
-    { key = "m4",   short = "M4",  label = "Schlüsselstein 4",   track = "champion", rank = 3, color = "ff1eff00" },
-    { key = "m5",   short = "M5",  label = "Schlüsselstein 5",   track = "champion", rank = 4, color = "ff1eff00" },
-    { key = "m6",   short = "M6",  label = "Schlüsselstein 6-7", track = "hero",     rank = 1, color = "ff0070dd" },
-    { key = "m8",   short = "M8",  label = "Schlüsselstein 8-9", track = "hero",     rank = 2, color = "ff0070dd" },
-    { key = "m10",  short = "M10", label = "Schlüsselstein 10",  track = "hero",     rank = 3, color = "ff0070dd" },
-    { key = "vault",short = "GV",  label = "Große Schatzkammer", track = "myth",     rank = 1, color = "ffa335ee" },
+    { key = "m0",  short = "M0",  label = "Mythisch 0",       track = "champion", rank = 1,
+      bonusTrack = "champion", bonusRank = 5 },
+    { key = "m2",  short = "M2",  label = "Schlüsselstein 2", track = "champion", rank = 2,
+      bonusTrack = "champion", bonusRank = 6 },
+    { key = "m3",  short = "M3",  label = "Schlüsselstein 3", track = "champion", rank = 2,
+      bonusTrack = "champion", bonusRank = 6 },
+    { key = "m4",  short = "M4",  label = "Schlüsselstein 4", track = "champion", rank = 3,
+      bonusTrack = "hero", bonusRank = 1 },
+    { key = "m5",  short = "M5",  label = "Schlüsselstein 5", track = "champion", rank = 4,
+      bonusTrack = "hero", bonusRank = 1 },
+    { key = "m6",  short = "M6",  label = "Schlüsselstein 6", track = "hero", rank = 1,
+      bonusTrack = "hero", bonusRank = 2 },
+    { key = "m7",  short = "M7",  label = "Schlüsselstein 7", track = "hero", rank = 1,
+      bonusTrack = "hero", bonusRank = 3 },
+    { key = "m8",  short = "M8",  label = "Schlüsselstein 8", track = "hero", rank = 2,
+      bonusTrack = "hero", bonusRank = 4 },
+    { key = "m9",  short = "M9",  label = "Schlüsselstein 9", track = "hero", rank = 2,
+      bonusTrack = "hero", bonusRank = 5 },
+    -- Erst ab Stufe 10 ein mythisches Teil. Das ist der Stand aus Season 1
+    -- und der Grund, Bonus Rolls bis hierhin aufzusparen.
+    { key = "m10", short = "M10", label = "Schlüsselstein 10", track = "hero", rank = 3,
+      bonusTrack = "myth", bonusRank = 1 },
+    { key = "vault", short = "GV", label = "Große Schatzkammer", track = "myth", rank = 1,
+      bonusTrack = "myth", bonusRank = 2 },
 }
 
 ns.SOURCES_RAID = {
-    { key = "lfr",    short = "LFR", label = "Schlachtzugsbrowser", track = "veteran",  rank = 1, color = "ff9d9d9d" },
-    { key = "normal", short = "N",   label = "Normal",              track = "champion", rank = 1, color = "ff1eff00" },
-    { key = "heroic", short = "H",   label = "Heroisch",            track = "hero",     rank = 1, color = "ff0070dd" },
-    { key = "mythic", short = "M",   label = "Mythisch",            track = "myth",     rank = 1, color = "ffa335ee" },
+    { key = "lfr",    short = "LFR", label = "Schlachtzugsbrowser", track = "veteran",  rank = 1,
+      bonusTrack = "champion", bonusRank = 1 },
+    { key = "normal", short = "N",   label = "Normal",              track = "champion", rank = 1,
+      bonusTrack = "hero", bonusRank = 1 },
+    { key = "heroic", short = "H",   label = "Heroisch",            track = "hero",     rank = 1,
+      bonusTrack = "myth", bonusRank = 1 },
+    { key = "mythic", short = "M",   label = "Mythisch",            track = "myth",     rank = 1,
+      bonusTrack = "myth", bonusRank = 2 },
 }
 
 -- Bonus Roll: springt auf die erste Stufe des naechsthoeheren Tracks.
@@ -90,21 +123,15 @@ end
 -- Liefert Itemlevel und Bonus-ID fuer eine Quelle, wahlweise als Bonus Roll.
 function ns.ResolveSource(source, asBonusRoll)
     if not source then return nil end
-    local trackKey, rank = source.track, source.rank
 
-    if asBonusRoll then
-        local nextKey = ns.NextTrack(trackKey)
-        if not nextKey then
-            -- Ueber Mythos gibt es nichts mehr. Dann bleibt es beim Track,
-            -- aber auf dem hoechsten Rang, den ein Drop erreichen kann.
-            rank = math.min(rank + 1, 6)
-        else
-            trackKey, rank = nextKey, 1
-        end
-    end
+    -- Nichts mehr berechnen: Beide Faelle stehen an der Quelle.
+    local trackKey = asBonusRoll and (source.bonusTrack or source.track) or source.track
+    local rank     = asBonusRoll and (source.bonusRank  or source.rank)  or source.rank
 
     local t = ns.TRACKS[trackKey]
     if not t then return nil end
+    rank = math.max(1, math.min(rank or 1, #t.ilvl))
+
     return {
         ilvl    = t.ilvl[rank],
         bonusId = t.bonus[rank],
@@ -112,6 +139,16 @@ function ns.ResolveSource(source, asBonusRoll)
         color   = t.color,     -- Farbe des ERGEBNIS-Tracks, nicht der Quelle
         rank    = rank,
     }
+end
+
+-- Farbe der Quelle selbst, also des Schluesselsteins bzw. der Raid-Stufe.
+-- Bewusst getrennt von der Ergebnis-Farbe: Das Kuerzel sagt WO man laeuft, das
+-- Itemlevel sagt WAS dabei herauskommt. Bei einem Bonus Roll faellt beides
+-- auseinander, und genau das soll man sehen.
+function ns.SourceColor(source)
+    if not source then return "ff9d9d9d" end
+    local t = ns.TRACKS[source.track]
+    return (t and t.color) or "ff9d9d9d"
 end
 
 -- Item-Link mit Bonus-ID.
