@@ -128,16 +128,67 @@ local function IsRaid(instanceID)
 end
 
 -- ----------------------------------------------------------------------------
--- Wunschliste
+-- Wunschliste mit Abstufung
 -- ----------------------------------------------------------------------------
+-- Vier Stufen statt einem Ja/Nein, Vorbild Keystone Loot.
+--
+-- Der Grund ist nicht Kosmetik, sondern die Sortierung: Wird nur GEZAEHLT,
+-- steht ein Boss mit drei "waere ganz nett" ueber einem mit einem "Best in
+-- Slot". Mit Gewichten bildet die Rangfolge ab, wo wirklich am meisten drin
+-- ist. Das ist der Kern dieses Add-ons, also muss er stimmen.
+--
+-- Transmog zaehlt bewusst 0: Es ist ein Sammelziel, kein Fortschritt. Wer nur
+-- Aussehen sucht, soll die Farm-Prioritaet nicht verzerren. Markiert wird es
+-- trotzdem, damit man beim Run daran denkt.
+--
+-- Farbwahl: Jede Stufe traegt zusaetzlich ein eigenes ZEICHEN. Farbe ist nie
+-- die einzige Information, gleiche Regel wie bei den Blockfarben in Chrissi's
+-- Addon. Wer Rot und Gruen nicht unterscheiden kann, liest die Stufe am
+-- Symbol ab.
 
-local function Wanted(itemID)
-    return (SlotMachineCharDB.wanted and SlotMachineCharDB.wanted[itemID]) and true or false
+local TIERS = {
+    BIS   = { order = 1, weight = 4, label = "Best in Slot", mark = "*", color = "ffe8c15a" },
+    MUST  = { order = 2, weight = 2, label = "Muss ich haben", mark = "!", color = "ff0ca30c" },
+    NICE  = { order = 3, weight = 1, label = "Wäre ganz nett", mark = "+", color = "ff4a9edb" },
+    XMOG  = { order = 4, weight = 0, label = "Nur Transmog",   mark = "~", color = "ffa855d6" },
+}
+local TIER_ORDER = { "BIS", "MUST", "NICE", "XMOG" }
+
+local function TierOf(itemID)
+    return SlotMachineCharDB.wanted and SlotMachineCharDB.wanted[itemID] or nil
 end
 
-local function ToggleWanted(itemID)
+local function Wanted(itemID)
+    return TierOf(itemID) ~= nil
+end
+
+local function SetTier(itemID, tier)
     SlotMachineCharDB.wanted = SlotMachineCharDB.wanted or {}
-    SlotMachineCharDB.wanted[itemID] = (not SlotMachineCharDB.wanted[itemID]) or nil
+    SlotMachineCharDB.wanted[itemID] = tier   -- nil entfernt den Eintrag
+end
+
+-- Linksklick schaltet der Reihe nach durch, damit man ohne Menue arbeiten
+-- kann. Rechtsklick oeffnet die Auswahl fuer den gezielten Sprung.
+local function CycleTier(itemID)
+    local cur = TierOf(itemID)
+    if not cur then SetTier(itemID, "BIS"); return end
+    for i, key in ipairs(TIER_ORDER) do
+        if key == cur then
+            SetTier(itemID, TIER_ORDER[i + 1])   -- nach XMOG kommt nil
+            return
+        end
+    end
+    SetTier(itemID, nil)
+end
+
+-- Migration: Die erste Fassung speicherte true statt einer Stufe. Solche
+-- Eintraege werden als "Muss ich haben" gelesen, damit niemand seine Liste
+-- verliert.
+local function MigrateWanted()
+    if not SlotMachineCharDB.wanted then return end
+    for id, v in pairs(SlotMachineCharDB.wanted) do
+        if v == true then SlotMachineCharDB.wanted[id] = "MUST" end
+    end
 end
 
 -- ----------------------------------------------------------------------------
@@ -167,28 +218,43 @@ local function BuildSources()
         local isRaid = IsRaid(instID)
         if (currentTab == "RAID") == isRaid then
             for encID, items in pairs(bosses) do
-                local shown, wish = {}, 0
+                local shown, wish, score = {}, 0, 0
                 for _, itemID in ipairs(items) do
                     if PassesSlot(itemID) then
                         shown[#shown + 1] = itemID
-                        if Wanted(itemID) then wish = wish + 1 end
+                        local t = TierOf(itemID)
+                        if t then
+                            wish = wish + 1
+                            score = score + (TIERS[t] and TIERS[t].weight or 0)
+                        end
                     end
                 end
                 if #shown > 0 then
-                    table.sort(shown)
+                    -- Innerhalb einer Zeile die wichtigsten Items zuerst,
+                    -- damit man ganz links sieht was zaehlt.
+                    table.sort(shown, function(a, b)
+                        local ta, tb = TierOf(a), TierOf(b)
+                        local wa = ta and TIERS[ta].order or 99
+                        local wb = tb and TIERS[tb].order or 99
+                        if wa ~= wb then return wa < wb end
+                        return a < b
+                    end)
                     out[#out + 1] = {
                         instanceID = instID, encounterID = encID,
-                        items = shown, wish = wish, isRaid = isRaid,
+                        items = shown, wish = wish, score = score, isRaid = isRaid,
                     }
                 end
             end
         end
     end
 
-    -- Absteigend nach Wunsch-Anzahl, dann nach Instanz, damit die Reihenfolge
-    -- bei Gleichstand stabil bleibt und die Liste nicht springt.
+    -- Absteigend nach GEWICHT, nicht nach Anzahl. Ein Best-in-Slot-Teil zaehlt
+    -- vier, ein "waere ganz nett" eins. Bei Gleichstand entscheidet die Anzahl,
+    -- danach die Instanz, damit die Reihenfolge stabil bleibt und die Liste
+    -- nicht bei jedem Klick springt.
     table.sort(out, function(a, b)
-        if a.wish ~= b.wish then return a.wish > b.wish end
+        if a.score ~= b.score then return a.score > b.score end
+        if a.wish  ~= b.wish  then return a.wish  > b.wish  end
         if a.instanceID ~= b.instanceID then return a.instanceID < b.instanceID end
         return a.encounterID < b.encounterID
     end)
@@ -327,7 +393,7 @@ scrollFrame:SetScrollChild(content)
 
 local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD - 2)
-hint:SetText("|c" .. INK_DIM .. "Klick auf ein Item setzt es auf die Wunschliste. Quellen mit den meisten Wünschen stehen oben.|r")
+hint:SetText("|c" .. INK_DIM .. "Linksklick schaltet die Stufe weiter, Rechtsklick wählt direkt. Quellen mit dem höchsten Gewicht stehen oben.|r")
 
 -- ----------------------------------------------------------------------------
 -- Aufbau
@@ -365,14 +431,93 @@ local function GetIcon(row, i)
     b = CreateFrame("Button", nil, row)
     b:SetSize(ICON, ICON)
     b:SetPoint("LEFT", row, "LEFT", LABEL_W + (i - 1) * (ICON + ICON_GAP), 0)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.tex = b:CreateTexture(nil, "ARTWORK")
     b.tex:SetPoint("TOPLEFT", 1, -1)
     b.tex:SetPoint("BOTTOMRIGHT", -1, 1)
     b.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)   -- Blizzard-Rand wegschneiden
     b.edges = AddEdges(b, 0.35)
+
+    -- Stufen-Zeichen unten rechts. Traegt die Information zusaetzlich zur
+    -- Farbe, damit Farbsehschwaeche nichts kostet. Dunkler Hintergrund
+    -- dahinter, sonst geht das Zeichen auf hellen Icons unter.
+    b.markBg = b:CreateTexture(nil, "OVERLAY")
+    b.markBg:SetSize(11, 11)
+    b.markBg:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+    b.markBg:SetColorTexture(0, 0, 0, 0.75)
+    b.markBg:Hide()
+
+    b.mark = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.mark:SetPoint("CENTER", b.markBg, "CENTER", 0, 0)
+    b.mark:Hide()
+
     row.icons[i] = b
     return b
 end
+
+-- ----------------------------------------------------------------------------
+-- Rechtsklick-Menue zur Stufenwahl
+-- ----------------------------------------------------------------------------
+
+local tierMenu = CreateFrame("Frame", nil, UIParent)
+tierMenu:SetSize(150, (#TIER_ORDER + 1) * 20 + 8)
+tierMenu:SetFrameStrata("TOOLTIP")
+tierMenu:Hide()
+local tmbg = tierMenu:CreateTexture(nil, "BACKGROUND")
+tmbg:SetAllPoints()
+tmbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
+AddEdges(tierMenu)
+tierMenu.entries = {}
+
+for i = 1, #TIER_ORDER + 1 do
+    local e = CreateFrame("Button", nil, tierMenu)
+    e:SetSize(146, 20)
+    e:SetPoint("TOPLEFT", tierMenu, "TOPLEFT", 2, -(2 + (i - 1) * 20))
+    e.fill = e:CreateTexture(nil, "BACKGROUND")
+    e.fill:SetAllPoints()
+    e.fill:SetColorTexture(1, 1, 1, 0)
+    e.text = e:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    e.text:SetPoint("LEFT", e, "LEFT", 8, 0)
+    e:SetScript("OnEnter", function(self) self.fill:SetColorTexture(1, 1, 1, 0.08) end)
+    e:SetScript("OnLeave", function(self) self.fill:SetColorTexture(1, 1, 1, 0) end)
+    tierMenu.entries[i] = e
+end
+
+local function OpenTierMenu(anchor, itemID)
+    for i, key in ipairs(TIER_ORDER) do
+        local t = TIERS[key]
+        local e = tierMenu.entries[i]
+        e.text:SetText("|c" .. t.color .. t.mark .. "|r  |c" .. INK .. t.label .. "|r")
+        e:SetScript("OnClick", function()
+            SetTier(itemID, key)
+            tierMenu:Hide()
+            ns.UI:Render()
+        end)
+        e:Show()
+    end
+    local last = tierMenu.entries[#TIER_ORDER + 1]
+    last.text:SetText("|c" .. INK_DIM .. "-  von der Liste nehmen|r")
+    last:SetScript("OnClick", function()
+        SetTier(itemID, nil)
+        tierMenu:Hide()
+        ns.UI:Render()
+    end)
+    last:Show()
+
+    tierMenu:ClearAllPoints()
+    tierMenu:SetPoint("TOPLEFT", anchor, "BOTTOMRIGHT", 2, 0)
+    tierMenu:Show()
+end
+
+-- Klick ins Leere schliesst das Menue. Ohne das bliebe es stehen, bis man
+-- zufaellig wieder einen Eintrag trifft.
+tierMenu:SetScript("OnShow", function(self)
+    self:SetScript("OnUpdate", function(s)
+        if not s:IsMouseOver() and not IsMouseButtonDown() then return end
+        if IsMouseButtonDown() and not s:IsMouseOver() then s:Hide() end
+    end)
+end)
+tierMenu:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
 
 local function GetHeader(i)
     local h = headPool[i]
@@ -436,7 +581,10 @@ function UI:Render()
             local h = GetHeader(headI)
             h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
             local iname = EJ_GetInstanceInfo and EJ_GetInstanceInfo(src.instanceID)
-            h.text:SetText("|c" .. INK_DIM .. (iname or ("Instanz " .. src.instanceID)) .. "|r")
+            -- In Akzentfarbe und Grossbuchstaben. Vorher standen Ueberschrift
+            -- und Bossname in derselben Farbe untereinander und liessen sich
+            -- kaum unterscheiden.
+            h.text:SetText("|c" .. ACCENT .. string.upper(iname or ("Instanz " .. src.instanceID)) .. "|r")
             h:Show()
             y = y + HEAD_H
             lastInstance = src.instanceID
@@ -449,8 +597,10 @@ function UI:Render()
 
         local bname = EJ_GetEncounterInfo and EJ_GetEncounterInfo(src.encounterID)
         row.name:SetText("|c" .. INK .. (bname or ("Boss " .. src.encounterID)) .. "|r")
-        row.badge:SetText(src.wish > 0 and ("|c" .. GREEN .. src.wish .. "|r") or "")
-        row.fill:SetColorTexture(1, 1, 1, src.wish > 0 and 0.05 or 0.02)
+        -- Zeigt das GEWICHT, nicht die Anzahl. Das ist die Zahl, nach der
+        -- sortiert wird, also muss sie auch sichtbar sein.
+        row.badge:SetText(src.score > 0 and ("|c" .. ACCENT .. src.score .. "|r") or "")
+        row.fill:SetColorTexture(1, 1, 1, src.score > 0 and 0.06 or 0.02)
 
         for _, b in pairs(row.icons) do b:Hide() end
         for i, itemID in ipairs(src.items) do
@@ -459,28 +609,47 @@ function UI:Render()
             b.tex:SetTexture(rec.icon or 134400)   -- Fragezeichen als Rueckfall
             b:Show()
 
-            local isWanted = Wanted(itemID)
-            -- Nicht gewuenschte Items werden gedimmt, damit die Wunschliste
-            -- sofort ins Auge faellt. Farbe traegt hier echte Bedeutung.
-            b.tex:SetDesaturated(not isWanted)
-            b.tex:SetAlpha(isWanted and 1 or 0.55)
-            local er, eg, eb = HexToRGB(ACCENT)
-            for _, t in ipairs(b.edges) do
-                if isWanted then t:SetColorTexture(er, eg, eb, 0.9)
-                else t:SetColorTexture(EDGE[1], EDGE[2], EDGE[3], 0.35) end
+            local tierKey = TierOf(itemID)
+            local tier    = tierKey and TIERS[tierKey]
+
+            -- Nicht markierte Items werden entsaettigt und abgedunkelt, damit
+            -- die Wunschliste sofort ins Auge faellt. 0.7 statt 0.55, weil
+            -- eine Liste ohne Markierungen sonst trist und tot aussieht.
+            b.tex:SetDesaturated(tier == nil)
+            b.tex:SetAlpha(tier and 1 or 0.7)
+
+            if tier then
+                local r, g, bl = HexToRGB(tier.color)
+                for _, t in ipairs(b.edges) do t:SetColorTexture(r, g, bl, 0.95) end
+                b.markBg:Show()
+                b.mark:SetText("|c" .. tier.color .. tier.mark .. "|r")
+                b.mark:Show()
+            else
+                for _, t in ipairs(b.edges) do
+                    t:SetColorTexture(EDGE[1], EDGE[2], EDGE[3], 0.35)
+                end
+                b.markBg:Hide()
+                b.mark:Hide()
             end
 
-            b:SetScript("OnClick", function()
-                ToggleWanted(itemID)
-                UI:Render()
+            b:SetScript("OnClick", function(self, button)
+                if button == "RightButton" then
+                    OpenTierMenu(self, itemID)
+                else
+                    CycleTier(itemID)
+                    UI:Render()
+                end
             end)
             b:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetItemByID(itemID)
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine(Wanted(itemID)
-                    and "Klick entfernt von der Wunschliste"
-                    or  "Klick setzt auf die Wunschliste", 0.65, 0.63, 0.58)
+                local cur = TierOf(itemID)
+                if cur then
+                    GameTooltip:AddLine("Markiert: " .. TIERS[cur].label, HexToRGB(TIERS[cur].color))
+                end
+                GameTooltip:AddLine("Linksklick schaltet die Stufe weiter", 0.65, 0.63, 0.58)
+                GameTooltip:AddLine("Rechtsklick wählt sie direkt", 0.65, 0.63, 0.58)
                 GameTooltip:Show()
             end)
             b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -502,7 +671,14 @@ function UI:Render()
 end
 
 function UI:Toggle()
-    if frame:IsShown() then frame:Hide() else frame:Show(); UI:Render() end
+    if frame:IsShown() then
+        frame:Hide()
+        tierMenu:Hide()
+    else
+        MigrateWanted()
+        frame:Show()
+        UI:Render()
+    end
 end
 
 function UI:RestorePosition()
