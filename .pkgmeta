@@ -1,0 +1,14 @@
+# Steuerdatei fuer den BigWigs Packager.
+#
+# package-as nagelt den Ordnernamen im Zip fest. Ohne diese Zeile benennt der
+# Packager ihn nach dem Repo-Namen, und WoW laedt ein Add-on nur, wenn der
+# Ordner exakt so heisst wie die .toc-Datei. Ein abweichender Repo-Name wuerde
+# also ein Zip erzeugen, das sich installiert, aber im Spiel nie auftaucht.
+package-as: SlotMachine
+
+# Entwicklungs-Krempel gehoert nicht ins ausgelieferte Zip.
+ignore:
+  - .github
+  - .gitattributes
+  - .gitignore
+  - tools
