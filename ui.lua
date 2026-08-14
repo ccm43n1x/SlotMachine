@@ -17,6 +17,24 @@
 
 local AddonName, ns = ...
 
+-- SavedVariables hier absichern, NICHT erst in main.lua.
+--
+-- Grund, gelernt am 14.08.2026: Die .toc laedt ui.lua VOR main.lua, und
+-- main.lua ist die Datei, die SlotMachineDB anlegt. Diese Datei greift aber
+-- schon beim Laden auf die Datenbank zu, naemlich wenn die Options-Schalter
+-- erzeugt werden und ihren Anfangszustand lesen. Ergebnis war ein Abbruch mit
+-- "attempt to index global 'SlotMachineDB' (a nil value)" mitten in der Datei.
+--
+-- Die Folge war heimtueckisch: ns.UI existierte, war aber leer, weil der
+-- Abbruch VOR der Definition von UI:Toggle passierte. Das Fenster liess sich
+-- dadurch weder per Slash-Befehl noch ueber den Minimap-Knopf oeffnen,
+-- obwohl beides fehlerfrei aussah.
+--
+-- Regel daraus: Jede Datei, die auf SavedVariables zugreift, sichert sie
+-- selbst ab. Verlass dich nie auf die Ladereihenfolge der .toc.
+SlotMachineDB     = SlotMachineDB or {}
+SlotMachineCharDB = SlotMachineCharDB or {}
+
 local UI = {}
 ns.UI = UI
 
