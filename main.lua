@@ -124,6 +124,37 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
             ns.Scanner:Probe(id)
         end
 
+    elseif cmd == "bosses" then
+        -- Bossnamen zu ihren IDs. Gebraucht fuer die bossabhaengigen
+        -- Itemlevel im Raid: Spaetere Bosse droppen weiter oben im
+        -- Upgrade-Track, die letzten beiden auf Mythisch sogar darueber
+        -- hinaus. Ohne diese Zuordnung waere jede Angabe geraten.
+        ns.Scanner:ResetLog()
+        local Say = ns.Scanner.Say
+        Say("Bosse je Instanz:")
+        for _, isRaid in ipairs({ true, false }) do
+            local idx = 1
+            while true do
+                local ok, instID, instName = pcall(EJ_GetInstanceByIndex, idx, isRaid)
+                if not ok or not instID then break end
+                if ns.LOOT and ns.LOOT[instID] then
+                    Say(string.format("--- %s (%d) ---", tostring(instName), instID))
+                    -- Reihenfolge wie im Journal, das ist die Reihenfolge im Raid
+                    local j = 1
+                    while true do
+                        local ok2, encName, _, encID = pcall(EJ_GetEncounterInfoByIndex, j, instID)
+                        if not ok2 or not encName then break end
+                        Say(string.format("   %d  %s", tonumber(encID) or -1, tostring(encName)))
+                        j = j + 1
+                        if j > 30 then break end
+                    end
+                end
+                idx = idx + 1
+                if idx > 60 then break end
+            end
+        end
+        Say("Fertig. Jetzt |cffffd100/reload|r, dann liegt die Liste in der Datei.")
+
     elseif cmd == "chat" then
         ns.Scanner:ListChatWindows()
 
@@ -147,6 +178,7 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
         Say("  |cffffd100/sm instances|r   Instanzen des aktuellen Tiers mit IDs")
         Say("  |cffffd100/sm probe <ID>|r  Diagnose: was liefert das Journal für diese Instanz")
         Say("  |cffffd100/sm scan|r        Vollscan über alle Instanzen des Tiers")
+        Say("  |cffffd100/sm bosses|r      Bossnamen mit ihren IDs, je Instanz")
         Say("  |cffffd100/sm chat|r        Welche Chat-Fenster gibt es, welches wird genutzt")
         Say("|cff808080  Alles Entwickler-Werkzeuge. Die Nutzeroberfläche kommt später.|r")
     end

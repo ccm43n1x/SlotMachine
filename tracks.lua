@@ -172,6 +172,54 @@ function ns.HasBonusRoll(source)
     return source and source.bonusTrack ~= nil
 end
 
+-- ----------------------------------------------------------------------------
+-- Bossabhaengiges Itemlevel im Raid
+-- ----------------------------------------------------------------------------
+-- Im Raid ist das Itemlevel NICHT einheitlich je Schwierigkeitsgrad. Spaetere
+-- Bosse droppen bereits weiter oben im Upgrade-Track, was Crests spart. Method
+-- dazu: "later and harder bosses dropping gear that is already further along
+-- the upgrade track".
+--
+-- Recherchierter Stand fuer Mythisch (14.08.2026):
+--   Nymrissa Wavecaller, Nek'zali the Soulcoiler ...... Myth 1/6  318
+--   Entombed Sentinels, The Lost Explorers ............ Myth 2/6  321
+--   Vashnik the Malignant, Sszorak, The Twin Fangs .... Myth 3/6  324
+--   The Coiled Altar, Ula'tek ......................... Myth 9/6  344
+--
+-- Die letzten beiden liegen damit UEBER dem regulaeren Track. Wer sie mit dem
+-- Standardwert anzeigt, liegt um 26 Itemlevel daneben.
+--
+-- ns.BOSS_RANK ordnet einer encounterID den Rang innerhalb des Tracks zu.
+-- Steht ein Boss nicht drin, gilt Rang 1, also der Standardwert der Stufe.
+--
+-- NOCH LEER: Die encounterIDs stehen zwar in data.lua (Venomous Abyss hat
+-- 2871, 2874, 2882, 2883, 2887, 2888, 2894, 2895), welche davon zu welchem
+-- Boss gehoert, ist aber nicht belegt. Naheliegend waere, dass sie in
+-- Raid-Reihenfolge vergeben sind und die beiden hoechsten die Endbosse sind.
+-- Genau solche Annahmen mussten heute schon zweimal korrigiert werden,
+-- deshalb erst mit /sm bosses verifizieren und dann eintragen.
+ns.BOSS_RANK = {
+    -- [encounterID] = { rank = n }  oder  { ilvl = n } fuer Werte ueber dem Track
+}
+
+-- Rang eines Bosses innerhalb der gewaehlten Stufe.
+function ns.BossAdjust(resolved, encounterID)
+    if not resolved or not encounterID then return resolved end
+    local adj = ns.BOSS_RANK[encounterID]
+    if not adj then return resolved end
+
+    -- Fester Wert, etwa fuer die Endbosse jenseits des regulaeren Tracks
+    if adj.ilvl then
+        local out = {}
+        for k, v in pairs(resolved) do out[k] = v end
+        out.ilvl = adj.ilvl
+        out.badge = adj.badge or out.badge
+        return out
+    end
+
+    return resolved
+end
+
 -- Farbe der Quelle selbst, also des Schluesselsteins bzw. der Raid-Stufe.
 -- Bewusst getrennt von der Ergebnis-Farbe: Das Kuerzel sagt WO man laeuft, das
 -- Itemlevel sagt WAS dabei herauskommt. Bei einem Bonus Roll faellt beides
