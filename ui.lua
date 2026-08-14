@@ -1915,6 +1915,26 @@ function UI:ToggleOptions()
     end
 end
 
+-- Escape schliesst das Fenster.
+--
+-- WoW erledigt das selbst, sobald der GLOBALE Name des Frames in
+-- UISpecialFrames steht. Deshalb muss das Fenster einen Namen haben, ein
+-- anonymes Frame liesse sich so nicht ansprechen.
+--
+-- Wichtig ist der Weg ueber OnHide weiter unten: Escape ruft nicht UI:Toggle
+-- auf, sondern versteckt das Frame direkt. Ohne den Handler blieben die
+-- Menues offen im Bildschirm stehen, nachdem das Fenster darunter weg ist.
+tinsert(UISpecialFrames, "SlotMachine_MainFrame")
+
+frame:HookScript("OnHide", function()
+    if optFrame  then optFrame:Hide()  end
+    if slotMenu  then slotMenu:Hide()  end
+    if specMenu  then specMenu:Hide()  end
+    if subMenu   then subMenu:Hide()   end
+    if srcMenu   then srcMenu:Hide()   end
+    if tierMenu  then tierMenu:Hide()  end
+end)
+
 function UI:Toggle()
     if frame:IsShown() then
         frame:Hide()
