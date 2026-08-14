@@ -123,6 +123,70 @@ local function GroupOfItem(itemID)
 end
 
 -- ----------------------------------------------------------------------------
+-- Item Level
+-- ----------------------------------------------------------------------------
+-- Keystone Loot zeigt das Itemlevel ABSOLUT an: "dieses Teil hat 311". Die
+-- Frage, die man sich beim Loot-Planen aber wirklich stellt, ist eine andere:
+-- "ist das besser als das, was ich gerade anhabe?" Dort muss man das im Kopf
+-- machen, Slot fuer Slot.
+--
+-- SlotMachine zeigt deshalb standardmaessig die DIFFERENZ zum eigenen Item.
+-- Das absolute Itemlevel gibt es als Option in den Einstellungen.
+--
+-- Die Technik mit den Bonus-IDs, mit der Keystone Loot den Tooltip auf ein
+-- Ziel-Niveau hebt, ist bewusst nicht uebernommen. Sie braucht eine gepflegte
+-- Tabelle von Bonus-IDs je Season. Fuer den Vergleich reicht das Basis-Level,
+-- das der Client selbst liefert.
+
+-- equipLoc auf die Ausruestungsplaetze der Spielfigur. Ringe, Schmuck und
+-- Waffen haben zwei Plaetze, deshalb Listen.
+local EQUIP_SLOTS = {
+    INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 },
+    INVTYPE_CHEST = { 5 }, INVTYPE_ROBE = { 5 },
+    INVTYPE_WAIST = { 6 }, INVTYPE_LEGS = { 7 }, INVTYPE_FEET = { 8 },
+    INVTYPE_WRIST = { 9 }, INVTYPE_HAND = { 10 },
+    INVTYPE_FINGER = { 11, 12 }, INVTYPE_TRINKET = { 13, 14 },
+    INVTYPE_CLOAK = { 15 },
+    INVTYPE_WEAPON = { 16, 17 }, INVTYPE_2HWEAPON = { 16 },
+    INVTYPE_WEAPONMAINHAND = { 16 },
+    INVTYPE_RANGED = { 16 }, INVTYPE_RANGEDRIGHT = { 16 },
+    INVTYPE_SHIELD = { 17 }, INVTYPE_HOLDABLE = { 17 },
+}
+
+local function ItemLevelOf(itemID)
+    if not (C_Item and C_Item.GetDetailedItemLevelInfo) then return nil end
+    local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, itemID)
+    return ok and ilvl or nil
+end
+
+-- Itemlevel des angelegten Teils im passenden Slot.
+--
+-- Bei Doppelplaetzen (Ringe, Schmuck, Einhandwaffen) zaehlt das SCHWAECHERE
+-- der beiden. Das ist das Teil, das man ersetzen wuerde, und nur gegen dieses
+-- ist der Vergleich ehrlich. Gegen den Durchschnitt oder das bessere zu
+-- rechnen wuerde echte Upgrades verstecken.
+local function EquippedLevelFor(itemID)
+    local rec = ns.ITEMS and ns.ITEMS[itemID]
+    if not rec or not rec.e then return nil end
+    local loc = ns.EQUIP and ns.EQUIP[rec.e]
+    local slots = loc and EQUIP_SLOTS[loc]
+    if not slots then return nil end
+
+    local worst = nil
+    for _, slotID in ipairs(slots) do
+        local link = GetInventoryItemLink and GetInventoryItemLink("player", slotID)
+        if link then
+            local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, link)
+            if ok and ilvl and (not worst or ilvl < worst) then worst = ilvl end
+        else
+            -- Leerer Platz. Alles ist besser als nichts, also Differenz gegen 0.
+            return 0
+        end
+    end
+    return worst
+end
+
+-- ----------------------------------------------------------------------------
 -- Raid oder Dungeon?
 -- ----------------------------------------------------------------------------
 -- Steht nicht in den Daten, weil der Scan es nicht mitgeschrieben hat. Statt
@@ -178,7 +242,11 @@ local TIERS = {
     MUST  = { order = 2, weight = 2, label = "Muss ich haben",   mark = "!", color = "ffa335ee" },
     NICE  = { order = 3, weight = 1, label = "Wäre ganz nett",   mark = "+", color = "ff0070dd" },
     OFF   = { order = 4, weight = 1, label = "Für den Off-Spec", mark = "o", color = "ff1eff00" },
-    XMOG  = { order = 5, weight = 0, label = "Nur Transmog",     mark = "~", color = "ff9d9d9d" },
+    -- Weiss statt Grau. Das Grau lag zu nah an der normalen Rahmenfarbe
+    -- (#77787b bei 35 Prozent) und war als Markierung schlicht nicht zu
+    -- erkennen. Weiss ist in Blizzards Skala die Stufe darueber und passt
+    -- inhaltlich: Transmog ist kosmetisch, kein Fortschritt.
+    XMOG  = { order = 5, weight = 0, label = "Nur Transmog",     mark = "~", color = "ffffffff" },
 }
 local TIER_ORDER = { "BIS", "MUST", "NICE", "OFF", "XMOG" }
 
@@ -698,6 +766,19 @@ local function GetIcon(row, i)
     b.mark:SetPoint("CENTER", b.markBg, "CENTER", 0, 0)
     b.mark:Hide()
 
+    -- Itemlevel unten links, mit dunklem Streifen darunter. Ohne den Streifen
+    -- verschwindet die Zahl auf hellen Icons.
+    b.ilvlBg = b:CreateTexture(nil, "OVERLAY")
+    b.ilvlBg:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 1, 1)
+    b.ilvlBg:SetSize(ICON - 2, 10)
+    b.ilvlBg:SetColorTexture(0, 0, 0, 0.7)
+    b.ilvlBg:Hide()
+
+    b.ilvl = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.ilvl:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, 1)
+    b.ilvl:SetJustifyH("LEFT")
+    b.ilvl:Hide()
+
     row.icons[i] = b
     return b
 end
@@ -905,6 +986,33 @@ function UI:Render()
                 b.mark:Hide()
             end
 
+            -- Itemlevel: Differenz zum eigenen Teil, oder absolut auf Wunsch
+            if SlotMachineDB.hideItemLevel then
+                b.ilvlBg:Hide(); b.ilvl:Hide()
+            else
+                local lvl = ItemLevelOf(itemID)
+                if not lvl then
+                    b.ilvlBg:Hide(); b.ilvl:Hide()
+                    -- Anstossen, damit es beim naechsten Aufbau da ist
+                    if C_Item and C_Item.RequestLoadItemDataByID then
+                        pcall(C_Item.RequestLoadItemDataByID, itemID)
+                    end
+                elseif SlotMachineDB.absoluteItemLevel then
+                    b.ilvl:SetText("|c" .. INK .. lvl .. "|r")
+                    b.ilvlBg:Show(); b.ilvl:Show()
+                else
+                    local mine = EquippedLevelFor(itemID)
+                    if not mine then
+                        b.ilvl:SetText("|c" .. INK_DIM .. lvl .. "|r")
+                    else
+                        local d = lvl - mine
+                        local col = (d > 0 and GREEN) or (d < 0 and INK_DIM) or INK_DIM
+                        b.ilvl:SetText("|c" .. col .. (d > 0 and ("+" .. d) or tostring(d)) .. "|r")
+                    end
+                    b.ilvlBg:Show(); b.ilvl:Show()
+                end
+            end
+
             b:SetScript("OnClick", function(self, button)
                 if button == "RightButton" then
                     OpenTierMenu(self, itemID)
@@ -948,7 +1056,7 @@ end
 -- ----------------------------------------------------------------------------
 
 local optFrame = CreateFrame("Frame", nil, frame)
-optFrame:SetSize(300, 200)
+optFrame:SetSize(320, 250)
 optFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(PAD + 26))
 optFrame:SetFrameStrata("DIALOG")
 optFrame:Hide()
@@ -1016,14 +1124,24 @@ optToggles[#optToggles + 1] = MakeToggle(optFrame, -84, "Zeichen an markierten I
     function(v) SlotMachineDB.showMarks = v or nil end,
     "Blendet zusätzlich zum farbigen Rahmen ein Zeichen ein. Sinnvoll bei Farbsehschwäche: Orange und Grün liegen bei Deuteranopie dicht beieinander.")
 
-optToggles[#optToggles + 1] = MakeToggle(optFrame, -110, "Minimap-Knopf anzeigen",
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -110, "Item Level absolut statt als Differenz",
+    function() return SlotMachineDB.absoluteItemLevel end,
+    function(v) SlotMachineDB.absoluteItemLevel = v or nil end,
+    "Standard ist die Differenz zu deinem angelegten Teil, also +13 statt 311. Bei Doppelplätzen wie Ringen wird gegen das schwächere der beiden gerechnet, weil du dieses ersetzen würdest.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -136, "Item Level ganz ausblenden",
+    function() return SlotMachineDB.hideItemLevel end,
+    function(v) SlotMachineDB.hideItemLevel = v or nil end,
+    "Blendet die Zahl am Icon aus. Der Tooltip zeigt sie weiterhin.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -162, "Minimap-Knopf anzeigen",
     function() return not (ns.Minimap and ns.Minimap:IsHidden()) end,
     function() if ns.Minimap then ns.Minimap:Toggle() end end,
     "Der Knopf lässt sich per Ziehen um die Minimap bewegen.")
 
 local optLegend = optFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-optLegend:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -140)
-optLegend:SetWidth(280)
+optLegend:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -194)
+optLegend:SetWidth(300)
 optLegend:SetJustifyH("LEFT")
 do
     local parts = {}
@@ -1034,20 +1152,27 @@ do
     optLegend:SetText("Gewichtung: " .. table.concat(parts, ", "))
 end
 
+-- Echtes Zahnrad statt eines getippten "o". Blizzard liefert die Grafik
+-- bereits mit, es braucht also keine eigene Datei im Add-on.
 local gearBtn = CreateFrame("Button", nil, frame)
-gearBtn:SetSize(20, 20)
-gearBtn:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
-gearBtn.label = gearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-gearBtn.label:SetPoint("CENTER")
-gearBtn.label:SetText("|c" .. INK_DIM .. "o|r")
+gearBtn:SetSize(18, 18)
+gearBtn:SetPoint("RIGHT", closeBtn, "LEFT", -6, 0)
+
+gearBtn.icon = gearBtn:CreateTexture(nil, "ARTWORK")
+gearBtn.icon:SetAllPoints()
+gearBtn.icon:SetTexture("Interface\\Buttons\\UI-OptionsButton")
+-- Auf INK_DIM eingefaerbt, damit das Zahnrad im Ruhezustand so leise ist wie
+-- der Schliessen-Knopf daneben und nicht staendig Aufmerksamkeit zieht.
+gearBtn.icon:SetVertexColor(HexToRGB(INK_DIM))
+
 gearBtn:SetScript("OnEnter", function(self)
-    self.label:SetText("|c" .. ACCENT .. "o|r")
+    self.icon:SetVertexColor(HexToRGB(ACCENT))
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("Einstellungen")
     GameTooltip:Show()
 end)
 gearBtn:SetScript("OnLeave", function(self)
-    self.label:SetText("|c" .. INK_DIM .. "o|r")
+    self.icon:SetVertexColor(HexToRGB(INK_DIM))
     GameTooltip:Hide()
 end)
 gearBtn:SetScript("OnClick", function() ns.UI:ToggleOptions() end)
