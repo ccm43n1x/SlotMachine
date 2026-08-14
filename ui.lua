@@ -336,11 +336,23 @@ end
 --     sich zuerst stellt.
 --   Boss - eine Zeile je Boss. Beantwortet "auf wen freue ich mich", nuetzlich
 --     im Raid, wo man einzelne Bosse gezielt ansteuert.
+-- Im Raid wird IMMER nach Boss gruppiert, unabhaengig von der Einstellung.
+--
+-- Der Grund liegt daran, wie man die beiden Inhalte spielt: Einen Dungeon
+-- laeuft man am Stueck durch, da lautet die Frage "wo gehe ich hin". Im Raid
+-- steuert man einzelne Bosse an, legt sie ueber mehrere Abende oder ueberspringt
+-- sie. Eine zusammengefasste Raid-Zeile beantwortet dort keine Frage, die
+-- jemand stellt.
+local function GroupByDungeon()
+    if currentTab == "RAID" then return false end
+    return (SlotMachineDB.groupBy or "DUNGEON") == "DUNGEON"
+end
+
 local function BuildSources()
     local out = {}
     if not ns.LOOT then return out end
 
-    local byDungeon = (SlotMachineDB.groupBy or "DUNGEON") == "DUNGEON"
+    local byDungeon = GroupByDungeon()
 
     for instID, bosses in pairs(ns.LOOT) do
         local isRaid = IsRaid(instID)
@@ -807,7 +819,7 @@ function UI:Render()
     local y, rowI, headI = 0, 0, 0
     local lastInstance = nil
 
-    local byDungeon = (SlotMachineDB.groupBy or "DUNGEON") == "DUNGEON"
+    local byDungeon = GroupByDungeon()
 
     for _, src in ipairs(sources) do
         -- Instanz-Ueberschrift nur in der Boss-Ansicht. In der Dungeon-Ansicht
@@ -989,10 +1001,10 @@ end
 
 local optToggles = {}
 
-optToggles[#optToggles + 1] = MakeToggle(optFrame, -32, "Eine Zeile pro Boss statt pro Dungeon",
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -32, "Dungeons: eine Zeile pro Boss",
     function() return (SlotMachineDB.groupBy or "DUNGEON") == "BOSS" end,
     function(v) SlotMachineDB.groupBy = v and "BOSS" or "DUNGEON" end,
-    "Standard ist eine Zeile je Dungeon, weil die erste Frage lautet: wo gehe ich hin. Die Boss-Ansicht lohnt im Raid, wo einzelne Bosse gezielt angesteuert werden.")
+    "Standard ist eine Zeile je Dungeon, weil man ihn am Stück durchläuft und die Frage lautet: wo gehe ich hin. Gilt nur für Dungeons. Raids werden immer nach Boss aufgelistet, weil man dort einzelne Bosse ansteuert.")
 
 optToggles[#optToggles + 1] = MakeToggle(optFrame, -58, "Alle Klassen im Spec-Filter",
     function() return SlotMachineDB.allClasses end,
