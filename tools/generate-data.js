@@ -122,8 +122,13 @@ const all = Object.values(db.scanResults).filter(r => r && r.itemID);
 const gear   = all.filter(r => r.slot && r.slot !== "");
 const nonGear = all.filter(r => !r.slot || r.slot === "");
 
-// Gegenprobe: Ist filterType wirklich ein verlaesslicher Ersatz fuer den
-// Slot-Text? Wenn eine Zahl auf mehrere Slot-Namen zeigt, waere sie es nicht.
+// Gegenprobe: Ist filterType ein verlaesslicher Ersatz fuer den Slot-Text?
+// Wenn eine Zahl auf mehrere Slot-Namen zeigt, waere sie es nicht.
+//
+// Ergebnis vom 14.08.2026: NEIN. Die 10 steht gleichzeitig fuer One-Hand,
+// Two-Hand, Ranged und Main Hand, die 11 fuer Off Hand und Held In Off-hand.
+// Fuer einen Loot-Planer unbrauchbar, deshalb wird seither equipLoc
+// mitgescannt. Die Pruefung bleibt als Regressionstest stehen.
 const filterMap = new Map();
 for (const r of gear) {
     if (r.filterType === undefined || r.filterType === null) continue;
@@ -131,6 +136,22 @@ for (const r of gear) {
     filterMap.get(r.filterType).add(r.slot);
 }
 const ambiguous = [...filterMap.entries()].filter(([, set]) => set.size > 1);
+
+// Dieselbe Pruefung fuer equipLoc. Der soll eindeutig sein, sonst taugt auch
+// er nicht als sprachunabhaengiger Ersatz.
+const equipMap = new Map();
+let missingEquip = 0;
+for (const r of gear) {
+    if (!r.equipLoc) { missingEquip++; continue; }
+    if (!equipMap.has(r.equipLoc)) equipMap.set(r.equipLoc, new Set());
+    equipMap.get(r.equipLoc).add(r.slot);
+}
+const equipAmbiguous = [...equipMap.entries()].filter(([, set]) => set.size > 1);
+
+// Nachschlagetabelle, damit in jeder Item-Zeile nur eine kleine Zahl steht
+// statt einer langen Zeichenkette wie INVTYPE_WEAPONMAINHAND.
+const equipList = [...equipMap.keys()].sort();
+const equipIndex = new Map(equipList.map((e, i) => [e, i + 1]));
 
 // Nach Instanz und Boss gruppieren
 const byInstance = new Map();
@@ -162,13 +183,28 @@ for (const [ft, set] of [...filterMap.entries()].sort((a, b) => a[0] - b[0])) {
     console.log("   " + String(ft).padStart(3) + " = " + [...set].join(" / "));
 }
 if (ambiguous.length) {
-    console.log("");
-    console.log("ACHTUNG: filterType ist NICHT eindeutig, betroffen: "
-        + ambiguous.map(([ft]) => ft).join(", "));
-    console.log("Dann muss der Slot-Text mitgespeichert werden.");
+    console.log("   -> filterType NICHT eindeutig bei: " + ambiguous.map(([ft]) => ft).join(", "));
 } else {
+    console.log("   -> filterType eindeutig.");
+}
+
+console.log("");
+console.log("equipLoc -> Slot:");
+for (const e of equipList) {
+    console.log("   " + e.padEnd(28) + " = " + [...equipMap.get(e)].join(" / "));
+}
+if (missingEquip) {
     console.log("");
-    console.log("filterType ist eindeutig, taugt also als sprachunabhaengiger Slot.");
+    console.log("ACHTUNG: " + missingEquip + " Ausruestungsteile ohne equipLoc.");
+    console.log("Erneut scannen, GetItemInfoInstant braucht das Item im Cache.");
+}
+if (equipAmbiguous.length) {
+    console.log("");
+    console.log("ACHTUNG: equipLoc NICHT eindeutig bei: "
+        + equipAmbiguous.map(([e]) => e).join(", "));
+} else if (!missingEquip) {
+    console.log("");
+    console.log("equipLoc ist eindeutig und vollstaendig. Taugt als Slot-Schluessel.");
 }
 
 // ---------------------------------------------------------------------------
@@ -207,12 +243,26 @@ for (const [instID, bosses] of [...byInstance.entries()].sort((a, b) => a[0] - b
 }
 L.push("}");
 L.push("");
-L.push("-- Item -> Eigenschaften. filterType ist der sprachunabhaengige Slot.");
+L.push("-- Ausruestungsplaetze. In den Item-Zeilen steht nur der Index in diese");
+L.push("-- Tabelle, das haelt die Datei klein.");
+L.push("--");
+L.push("-- Warum equipLoc und nicht filterType: filterType fasst bei Waffen");
+L.push("-- mehrere Typen zusammen, die 10 steht fuer One-Hand, Two-Hand, Ranged");
+L.push("-- und Main Hand gleichzeitig. Der Slot-Text waere eindeutig, ist aber");
+L.push("-- uebersetzt. equipLoc ist beides: eindeutig und sprachunabhaengig.");
+L.push("ns.EQUIP = {");
+for (let i = 0; i < equipList.length; i++) {
+    L.push('    [' + (i + 1) + '] = "' + equipList[i] + '",   -- '
+        + [...equipMap.get(equipList[i])].join(" / "));
+}
+L.push("}");
+L.push("");
+L.push("-- Item -> Eigenschaften. e = Index in ns.EQUIP, q = Qualitaetsfarbe.");
 L.push("ns.ITEMS = {");
 
 for (const r of gear.sort((a, b) => a.itemID - b.itemID)) {
     const parts = [];
-    if (r.filterType !== undefined && r.filterType !== null) parts.push("f = " + r.filterType);
+    if (r.equipLoc && equipIndex.has(r.equipLoc)) parts.push("e = " + equipIndex.get(r.equipLoc));
     if (r.icon)    parts.push("icon = " + r.icon);
     if (r.quality) parts.push('q = "' + r.quality + '"');
     // Name nur als Kommentar, damit die Datei lesbar bleibt
