@@ -1223,6 +1223,27 @@ local function GetIcon(row, i)
     b.ilvl:SetJustifyH("LEFT")
     b.ilvl:Hide()
 
+    -- Zwei diagonale Striche fuer einen verbrauchten Bonus Roll.
+    --
+    -- Keystone Loot blendet dafuer ein kleines Symbol in der Ecke ein. Hier
+    -- braucht es mehr, weil zwei Zustaende zu unterscheiden sind: "habe ich
+    -- bereits" wird abgedunkelt, "Bonus Roll verbraucht" durchgestrichen. Zwei
+    -- verschiedene visuelle Sprachen, damit beides gleichzeitig lesbar bleibt.
+    --
+    -- Die Laenge ist die Diagonale des Icons, also Kantenlaenge mal Wurzel
+    -- zwei, sonst reichen die Striche nicht bis in die Ecken.
+    local diag = ICON * 1.42
+    b.slash = {}
+    for k = 1, 2 do
+        local t = b:CreateTexture(nil, "OVERLAY", nil, 6)
+        t:SetColorTexture(1, 0.25, 0.25, 0.9)
+        t:SetSize(diag, 2)
+        t:SetPoint("CENTER", b, "CENTER", 0, 0)
+        t:SetRotation(math.rad(k == 1 and 45 or -45))
+        t:Hide()
+        b.slash[k] = t
+    end
+
     row.icons[i] = b
     return b
 end
@@ -1490,6 +1511,14 @@ function UI:Render()
                 b.tex:SetAlpha(0.3)
             end
 
+            -- Verbrauchter Bonus Roll: durchgestrichen. Der Tooltip bleibt
+            -- davon unberuehrt, die Striche sind reine Texturen und fangen
+            -- keine Mausereignisse ab.
+            local used = BonusUsed(itemID)
+            for _, t in ipairs(b.slash) do
+                if used then t:Show() else t:Hide() end
+            end
+
             if tier then
                 local r, g, bl = HexToRGB(tier.color)
                 if Owned(itemID) then r, g, bl = HexToRGB(INK_DIM) end
@@ -1524,7 +1553,11 @@ function UI:Render()
                         pcall(C_Item.RequestLoadItemDataByID, itemID)
                     end
                 elseif SlotMachineDB.absoluteItemLevel then
-                    b.ilvl:SetText("|c" .. INK .. lvl .. "|r")
+                    -- In der Farbe des Upgrade-Tracks, aus dem das Item
+                    -- stammt. Damit sieht man ohne Rechnen, ob es sich um
+                    -- Champion-, Hero- oder Myth-Ware handelt.
+                    local li = ResolvedForBoss(rowEncounter)
+                    b.ilvl:SetText("|c" .. ((li and li.color) or INK) .. lvl .. "|r")
                     b.ilvlBg:Show(); b.ilvl:Show()
                 else
                     local mine = EquippedLevelFor(itemID)

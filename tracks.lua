@@ -268,9 +268,13 @@ function ns.BossAdjust(resolved, encounterID, trackKey)
     -- Die letzten beiden Bosse auf Mythisch droppen JENSEITS des regulaeren
     -- Tracks, laut Method 344 statt der sonst hoechsten 334. Nur dort greift
     -- die Sonderbehandlung, auf niedrigeren Schwierigkeiten nicht.
+    -- Die Bezeichnung lautet tatsaechlich "Myth 9/6". Neun von sechs klingt
+    -- widersinnig, ist aber Blizzards eigene Schreibweise fuer Stufen jenseits
+    -- des regulaeren Tracks. Genau so steht es auch bei Method, deshalb wird
+    -- es woertlich uebernommen statt in ein huebscheres "max" uebersetzt.
     if adj.endBoss and trackKey == "myth" then
         out.ilvl  = 344
-        out.badge = t.letter .. " max"
+        out.badge = t.letter .. " 9/6"
         out.rank  = #t.ilvl
         return out
     end
