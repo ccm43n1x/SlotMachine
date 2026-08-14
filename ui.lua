@@ -51,7 +51,9 @@ local GREEN   = "ff0ca30c"
 -- Breite muss die komplette Filterleiste tragen: Slot, zwei Reiter, Spec und
 -- Quelle nebeneinander. Die Hoehe ist nur der Startwert, sie wird nach jedem
 -- Aufbau an den Inhalt angepasst (siehe FitHeight).
-local WIDTH, HEIGHT = 720, 560
+-- 780 statt 720: Die Filterleiste braucht 748 Pixel fuer Slot, zwei Reiter,
+-- Spec, Quelle und den Bonus-Roll-Haken. Der Rest kommt den Icon-Reihen zugute.
+local WIDTH, HEIGHT = 780, 560
 local MIN_HEIGHT, MAX_HEIGHT = 220, 780
 local PAD           = 14
 local ICON          = 26      -- Kantenlaenge eines Item-Icons
@@ -387,6 +389,10 @@ local function FilterLabel()
             and C_CreatureInfo.GetClassInfo(currentClass)
         return (info and info.className) or ("Klasse " .. currentClass)
     end
+    -- Ohne "Alle Klassen" ist "alle" auf die eigene Klasse beschraenkt. Das
+    -- muss die Beschriftung auch sagen, sonst wundert man sich, warum nicht
+    -- wirklich alles auftaucht.
+    if not SlotMachineDB.allClasses then return "Alle meine Specs" end
     return "Alle Specs"
 end
 
@@ -402,9 +408,26 @@ local function SpecIDsOfClass(classID)
     return out
 end
 
+-- Welche Klasse gilt gerade als Filter?
+--
+-- Wichtig fuer den Fall "Alle Specs" bei ausgeschalteter Option "Alle Klassen":
+-- Dort bedeutet "alle" natuerlich alle Specs DER EIGENEN KLASSE, nicht alle
+-- vierzig im Spiel. Vorher wurde nil einfach als "kein Filter" gelesen, und ein
+-- Todesritter bekam Stoffruestung und Zauberstaebe angezeigt.
+local function EffectiveClass()
+    if currentSpec then return nil end            -- Spec-Filter ist genauer
+    if currentClass then return currentClass end
+    if not SlotMachineDB.allClasses then
+        local _, _, classID = UnitClass("player")
+        return classID
+    end
+    return nil                                    -- wirklich alles
+end
+
 -- Kann die gewaehlte Spec oder Klasse dieses Item tragen?
 local function PassesSpec(itemID)
-    if not currentSpec and not currentClass then return true end
+    local classFilter = EffectiveClass()
+    if not currentSpec and not classFilter then return true end
 
     local rec = ns.ITEMS and ns.ITEMS[itemID]
     if not rec then return true end
@@ -420,7 +443,7 @@ local function PassesSpec(itemID)
     end
 
     -- Ganze Klasse: trifft zu, sobald IRGENDEINE ihrer Specs das Item tragen kann
-    local wanted = SpecIDsOfClass(currentClass)
+    local wanted = SpecIDsOfClass(classFilter)
     for _, id in ipairs(rec.s) do
         if wanted[id] then return true end
     end
@@ -775,6 +798,12 @@ srcbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
 AddEdges(srcMenu)
 srcMenu.entries = {}
 
+-- Vorwaertsdeklaration: BuildSourceMenu unten haelt den Haken synchron, wird
+-- aber vor dessen Erzeugung definiert. Ohne diese Zeile loeste der Name dort
+-- auf eine nicht existierende globale Variable auf und der Haken bliebe beim
+-- Umschalten ueber das Menue stehen.
+local rollBtn
+
 local function BuildSourceMenu()
     local list = (currentTab == "RAID") and ns.SOURCES_RAID or ns.SOURCES_DUNGEON
     for _, e in ipairs(srcMenu.entries) do e:Hide() end
@@ -803,15 +832,65 @@ local function BuildSourceMenu()
         end)
     end
 
+    -- Bleibt zusaetzlich im Menue, weil dort die Auswirkung auf ALLE Stufen
+    -- gleichzeitig sichtbar wird.
     local eB = MenuEntry(srcMenu, #list + 1, 200)
     eB.text:SetText("|c" .. (SlotMachineDB.bonusRoll and ACCENT or INK_DIM) .. "Als Bonus Roll rechnen|r")
     eB.arrow:SetText(SlotMachineDB.bonusRoll and ("|c" .. ACCENT .. "an|r") or ("|c" .. INK_DIM .. "aus|r"))
     eB:SetScript("OnClick", function()
         SlotMachineDB.bonusRoll = (not SlotMachineDB.bonusRoll) or nil
+        if rollBtn and rollBtn.Refresh then rollBtn:Refresh() end
         BuildSourceMenu()
         ns.UI:Render()
     end)
 end
+
+-- Bonus-Roll-Haken direkt neben der Stufe.
+--
+-- Steht bewusst hier und nicht nur im Menue: Der Vergleich "was bringt mir ein
+-- Bonus Roll auf dieser Stufe" ist genau die Frage, die man mehrfach
+-- hintereinander stellt, waehrend man Stufen durchprobiert. Zwei Klicks ins
+-- Menue waeren dafuer zu viel.
+rollBtn = CreateFrame("Button", nil, frame)
+rollBtn:SetSize(96, 22)
+rollBtn:SetPoint("LEFT", srcBtn, "RIGHT", 6, 0)
+rollBtn.fill = rollBtn:CreateTexture(nil, "BACKGROUND")
+rollBtn.fill:SetAllPoints()
+AddEdges(rollBtn)
+
+rollBtn.box = rollBtn:CreateTexture(nil, "ARTWORK")
+rollBtn.box:SetSize(11, 11)
+rollBtn.box:SetPoint("LEFT", rollBtn, "LEFT", 7, 0)
+
+rollBtn.text = rollBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+rollBtn.text:SetPoint("LEFT", rollBtn, "LEFT", 23, 0)
+
+function rollBtn:Refresh()
+    local on = SlotMachineDB.bonusRoll
+    self.fill:SetColorTexture(SURFACE[1], SURFACE[2], SURFACE[3], on and 0.9 or 0.4)
+    if on then
+        self.box:SetColorTexture(HexToRGB(ACCENT))
+    else
+        self.box:SetColorTexture(0.25, 0.25, 0.27, 0.9)
+    end
+    self.text:SetText("|c" .. (on and ACCENT or INK_DIM) .. "Bonus Roll|r")
+end
+
+rollBtn:SetScript("OnClick", function(self)
+    SlotMachineDB.bonusRoll = (not SlotMachineDB.bonusRoll) or nil
+    self:Refresh()
+    if srcMenu:IsShown() then BuildSourceMenu() end
+    ns.UI:Render()
+end)
+rollBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Als Bonus Roll rechnen")
+    GameTooltip:AddLine("Springt auf die erste Stufe des nächsthöheren Tracks. Aus M0 wird damit ein Hero-Teil statt Champion.", 0.65, 0.63, 0.58, true)
+    GameTooltip:AddLine("Umschalten zeigt sofort, was der Roll auf dieser Stufe bringt.", 0.65, 0.63, 0.58, true)
+    GameTooltip:Show()
+end)
+rollBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+rollBtn:Refresh()
 
 srcBtn:SetScript("OnClick", function()
     if srcMenu:IsShown() then srcMenu:Hide() else BuildSourceMenu(); srcMenu:Show() end
@@ -895,7 +974,7 @@ local function BuildSpecMenu()
         specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
 
         local e1 = MenuEntry(specMenu, 1, 150)
-        e1.text:SetText("|c" .. INK .. "Alle Specs|r")
+        e1.text:SetText("|c" .. INK .. "Alle meine Specs|r")
         e1:SetScript("OnClick", function()
             currentSpec, currentClass = nil, nil
             specMenu:Hide(); ns.UI:Render()
