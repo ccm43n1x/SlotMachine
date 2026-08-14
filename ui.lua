@@ -277,6 +277,34 @@ local TIERS = {
 }
 local TIER_ORDER = { "BIS", "MUST", "NICE", "OFF", "XMOG" }
 
+-- ----------------------------------------------------------------------------
+-- Besitz und verbrauchte Bonus Rolls
+-- ----------------------------------------------------------------------------
+-- Beides pro Charakter, denn beides ist charakterbezogen.
+--
+-- Getrennt gefuehrt, weil es zwei verschiedene Aussagen sind: "habe ich schon"
+-- beendet die Jagd auf dieses Item, "Bonus Roll verbraucht" sagt nur, dass ein
+-- Versuch weg ist. Man kann einen Bonus Roll verbrauchen und trotzdem nichts
+-- bekommen, das ist ja der Sinn eines Wurfs.
+
+local function Owned(itemID)
+    return (SlotMachineCharDB.owned and SlotMachineCharDB.owned[itemID]) and true or false
+end
+
+local function SetOwned(itemID, v)
+    SlotMachineCharDB.owned = SlotMachineCharDB.owned or {}
+    SlotMachineCharDB.owned[itemID] = v or nil
+end
+
+local function BonusUsed(itemID)
+    return (SlotMachineCharDB.bonusUsed and SlotMachineCharDB.bonusUsed[itemID]) and true or false
+end
+
+local function SetBonusUsed(itemID, v)
+    SlotMachineCharDB.bonusUsed = SlotMachineCharDB.bonusUsed or {}
+    SlotMachineCharDB.bonusUsed[itemID] = v or nil
+end
+
 local function TierOf(itemID)
     return SlotMachineCharDB.wanted and SlotMachineCharDB.wanted[itemID] or nil
 end
@@ -455,7 +483,7 @@ local function BuildSources()
         local isRaid = IsRaid(instID)
         if (currentTab == "RAID") == isRaid then
             if byDungeon then
-                local shown, wish, score, seen = {}, 0, 0, {}
+                local shown, wish, score, seen, openWish = {}, 0, 0, {}, 0
                 for _, items in pairs(bosses) do
                     for _, itemID in ipairs(items) do
                         -- Ein Item kann bei mehreren Bossen fallen. In der
@@ -466,7 +494,13 @@ local function BuildSources()
                             local t = TierOf(itemID)
                             if t then
                                 wish = wish + 1
-                                score = score + (TIERS[t] and TIERS[t].weight or 0)
+                                -- Bereits erhaltene Items zaehlen nicht mehr
+                                -- fuer die Priorisierung. Sonst bliebe ein
+                                -- abgehakter Dungeon dauerhaft oben stehen.
+                                if not Owned(itemID) then
+                                    openWish = openWish + 1
+                                    score = score + (TIERS[t] and TIERS[t].weight or 0)
+                                end
                             end
                         end
                     end
@@ -475,19 +509,23 @@ local function BuildSources()
                     SortItems(shown)
                     out[#out + 1] = {
                         instanceID = instID, encounterID = nil,
-                        items = shown, wish = wish, score = score, isRaid = isRaid,
+                        items = shown, wish = openWish, total = #shown,
+                        score = score, isRaid = isRaid,
                     }
                 end
             else
                 for encID, items in pairs(bosses) do
-                    local shown, wish, score = {}, 0, 0
+                    local shown, wish, score, openWish = {}, 0, 0, 0
                     for _, itemID in ipairs(items) do
                         if PassesSlot(itemID) then
                             shown[#shown + 1] = itemID
                             local t = TierOf(itemID)
                             if t then
                                 wish = wish + 1
-                                score = score + (TIERS[t] and TIERS[t].weight or 0)
+                                if not Owned(itemID) then
+                                    openWish = openWish + 1
+                                    score = score + (TIERS[t] and TIERS[t].weight or 0)
+                                end
                             end
                         end
                     end
@@ -495,7 +533,8 @@ local function BuildSources()
                         SortItems(shown)
                         out[#out + 1] = {
                             instanceID = instID, encounterID = encID,
-                            items = shown, wish = wish, score = score, isRaid = isRaid,
+                            items = shown, wish = openWish, total = #shown,
+                            score = score, isRaid = isRaid,
                         }
                     end
                 end
@@ -930,12 +969,14 @@ local function GetRow(i)
     -- mehrzeilig wird und der Text sonst in der Mitte schwebt.
     r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 6, -6)
-    r.name:SetWidth(LABEL_W - 34)
+    r.name:SetWidth(LABEL_W - 72)
     r.name:SetJustifyH("LEFT")
     r.name:SetWordWrap(false)
 
     r.badge = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    r.badge:SetPoint("TOPLEFT", r, "TOPLEFT", LABEL_W - 26, -6)
+    r.badge:SetPoint("TOPLEFT", r, "TOPLEFT", LABEL_W - 62, -6)
+    r.badge:SetWidth(58)
+    r.badge:SetJustifyH("RIGHT")
 
     r.icons = {}
     rowPool[i] = r
@@ -995,7 +1036,8 @@ end
 -- ----------------------------------------------------------------------------
 
 local tierMenu = CreateFrame("Frame", nil, UIParent)
-tierMenu:SetSize(150, (#TIER_ORDER + 1) * 20 + 8)
+-- Stufen, Trennung, "von der Liste nehmen", "erhalten", "Bonus Roll verbraucht"
+tierMenu:SetSize(190, (#TIER_ORDER + 3) * 20 + 8)
 tierMenu:SetFrameStrata("TOOLTIP")
 tierMenu:Hide()
 local tmbg = tierMenu:CreateTexture(nil, "BACKGROUND")
@@ -1004,9 +1046,9 @@ tmbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
 AddEdges(tierMenu)
 tierMenu.entries = {}
 
-for i = 1, #TIER_ORDER + 1 do
+for i = 1, #TIER_ORDER + 3 do
     local e = CreateFrame("Button", nil, tierMenu)
-    e:SetSize(146, 20)
+    e:SetSize(186, 20)
     e:SetPoint("TOPLEFT", tierMenu, "TOPLEFT", 2, -(2 + (i - 1) * 20))
     e.fill = e:CreateTexture(nil, "BACKGROUND")
     e.fill:SetAllPoints()
@@ -1038,6 +1080,33 @@ local function OpenTierMenu(anchor, itemID)
         ns.UI:Render()
     end)
     last:Show()
+
+    -- Erhalten. Beendet die Jagd auf dieses Item: es zaehlt nicht mehr fuer
+    -- die Priorisierung und wird durchgestrichen dargestellt.
+    local eOwn = tierMenu.entries[#TIER_ORDER + 2]
+    eOwn.text:SetText(Owned(itemID)
+        and ("|c" .. GREEN .. "x  habe ich bereits|r")
+        or  ("|c" .. INK .. "x  als erhalten markieren|r"))
+    eOwn:SetScript("OnClick", function()
+        SetOwned(itemID, not Owned(itemID))
+        tierMenu:Hide()
+        ns.UI:Render()
+    end)
+    eOwn:Show()
+
+    -- Bonus Roll verbraucht. Bewusst getrennt vom Besitz, weil ein Wurf auch
+    -- ins Leere gehen kann. Die Information ist trotzdem wichtig: der Versuch
+    -- ist weg.
+    local eBonus = tierMenu.entries[#TIER_ORDER + 3]
+    eBonus.text:SetText(BonusUsed(itemID)
+        and ("|c" .. ACCENT .. "o  Bonus Roll verbraucht|r")
+        or  ("|c" .. INK_DIM .. "o  Bonus Roll verbraucht?|r"))
+    eBonus:SetScript("OnClick", function()
+        SetBonusUsed(itemID, not BonusUsed(itemID))
+        tierMenu:Hide()
+        ns.UI:Render()
+    end)
+    eBonus:Show()
 
     tierMenu:ClearAllPoints()
     tierMenu:SetPoint("TOPLEFT", anchor, "BOTTOMRIGHT", 2, 0)
@@ -1156,9 +1225,19 @@ function UI:Render()
             label = label or ("Instanz " .. src.instanceID)
         end
         row.name:SetText("|c" .. INK .. label .. "|r")
-        -- Zeigt das GEWICHT, nicht die Anzahl. Das ist die Zahl, nach der
-        -- sortiert wird, also muss sie auch sichtbar sein.
-        row.badge:SetText(src.score > 0 and ("|c" .. ACCENT .. src.score .. "|r") or "")
+        -- Trefferquote statt reinem Gewicht: "3/12" heisst, drei der zwoelf
+        -- hier moeglichen Items stehen offen auf deiner Wunschliste. Das ist
+        -- die grobe Chance, dass ein Drop dich ueberhaupt interessiert, und
+        -- damit die ehrlichste Zahl, die sich ohne echte Drop-Raten sagen
+        -- laesst. Blizzard veroeffentlicht keine, und die WoW-API kennt sie
+        -- ebenfalls nicht.
+        if src.wish > 0 then
+            local pct = math.floor((src.wish / math.max(1, src.total)) * 100 + 0.5)
+            row.badge:SetText(string.format("|c%s%d|r|c%s/%d|r  |c%s%d%%|r",
+                ACCENT, src.wish, INK_DIM, src.total, INK_DIM, pct))
+        else
+            row.badge:SetText("")
+        end
         row.fill:SetColorTexture(1, 1, 1, src.score > 0 and 0.06 or 0.02)
 
         for _, b in pairs(row.icons) do b:Hide() end
@@ -1182,8 +1261,17 @@ function UI:Render()
             b.tex:SetDesaturated(tier == nil)
             b.tex:SetAlpha(tier and 1 or 0.7)
 
+            -- Erhaltene Items werden stark zurueckgenommen. Sie bleiben
+            -- sichtbar, damit man weiss dass der Slot erledigt ist, treten
+            -- aber optisch hinter alles zurueck was noch offen ist.
+            if Owned(itemID) then
+                b.tex:SetDesaturated(true)
+                b.tex:SetAlpha(0.3)
+            end
+
             if tier then
                 local r, g, bl = HexToRGB(tier.color)
+                if Owned(itemID) then r, g, bl = HexToRGB(INK_DIM) end
                 for _, t in ipairs(b.edges) do t:SetColorTexture(r, g, bl, 0.95) end
                 -- Zeichen nur auf Wunsch. Der farbige Rahmen genuegt normal,
                 -- die Zeichen sind fuer Farbsehschwaeche gedacht.
@@ -1281,8 +1369,14 @@ function UI:Render()
                 if cur then
                     GameTooltip:AddLine("Markiert: " .. TIERS[cur].label, HexToRGB(TIERS[cur].color))
                 end
+                if Owned(itemID) then
+                    GameTooltip:AddLine("Hast du bereits", HexToRGB(GREEN))
+                end
+                if BonusUsed(itemID) then
+                    GameTooltip:AddLine("Bonus Roll dafür verbraucht", HexToRGB(ACCENT))
+                end
                 GameTooltip:AddLine("Linksklick schaltet die Stufe weiter", 0.65, 0.63, 0.58)
-                GameTooltip:AddLine("Rechtsklick wählt sie direkt", 0.65, 0.63, 0.58)
+                GameTooltip:AddLine("Rechtsklick für Besitz und Bonus Roll", 0.65, 0.63, 0.58)
                 GameTooltip:Show()
             end)
             b:SetScript("OnLeave", function() GameTooltip:Hide() end)
