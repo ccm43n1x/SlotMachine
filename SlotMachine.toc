@@ -1,0 +1,14 @@
+## Interface: 120100, 120007
+## Title: SlotMachine
+## Author: Chris Cohrt
+## Version: 0.1.0
+## Notes: Loot- und Farm-Planer. Wunsch-Items markieren, Quellen priorisieren. Slash: /sm
+## IconTexture: Interface\Icons\INV_Misc_QuestionMark
+## SavedVariables: SlotMachineDB
+## SavedVariablesPerCharacter: SlotMachineCharDB
+
+# Reihenfolge wie bei Chrissi's Addon: Inhalt zuerst, Logik danach.
+# data.lua wird spaeter vom Generator erzeugt und existiert noch nicht.
+scanner.lua
+scanner_full.lua
+main.lua
