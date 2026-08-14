@@ -298,6 +298,40 @@ end
 -- deswegen neu zu scannen, wird die Liste einmal beim ersten Aufbau aus dem
 -- Journal geholt. Kostet zwei Schleifen und ist danach im Speicher.
 
+-- Reihenfolge der Bosse innerhalb einer Instanz.
+--
+-- Die encounterID taugt dafuer NICHT. Im Venomous Abyss traegt der erste Boss
+-- die 2888, waehrend die hoehere 2894 zu einem spaeteren gehoert. Nach ID zu
+-- sortieren wuerde den Raid also durcheinanderwerfen.
+--
+-- Das Encounter Journal listet die Bosse dagegen in der Reihenfolge, in der
+-- man sie trifft. Dieser Index wird einmal eingesammelt und danach als
+-- Sortierschluessel benutzt.
+local encounterOrder = nil
+local function EncounterIndex(instanceID, encounterID)
+    if not encounterOrder then
+        encounterOrder = {}
+        for _, isRaid in ipairs({ true, false }) do
+            local i = 1
+            while true do
+                local ok, instID = pcall(EJ_GetInstanceByIndex, i, isRaid)
+                if not ok or not instID then break end
+                local j = 1
+                while true do
+                    local ok2, _, _, encID = pcall(EJ_GetEncounterInfoByIndex, j, instID)
+                    if not ok2 or not encID then break end
+                    encounterOrder[encID] = j
+                    j = j + 1
+                    if j > 30 then break end
+                end
+                i = i + 1
+                if i > 60 then break end
+            end
+        end
+    end
+    return encounterOrder[encounterID] or 99
+end
+
 local raidSet = nil
 local function IsRaid(instanceID)
     if not raidSet then
@@ -663,13 +697,26 @@ local function BuildSources()
     -- auch fuer die, die man fuer unmoeglich haelt. table.sort vergleicht
     -- Elemente in einer Reihenfolge, die man nicht vorhersagen kann.
     table.sort(out, function(a, b)
+        -- Im Raid steht die Reihenfolge der Bosse ueber der Priorisierung.
+        -- Ein Raid laeuft man von vorne nach hinten, eine nach Wunsch-Gewicht
+        -- umsortierte Bossliste waere dort unbrauchbar. Im Dungeon gilt das
+        -- nicht, dort ist die Frage "wo gehe ich hin" und die Sortierung nach
+        -- Gewicht genau richtig.
+        if currentTab == "RAID" then
+            local ia, ib = a.instanceID or 0, b.instanceID or 0
+            if ia ~= ib then return ia < ib end
+            return EncounterIndex(ia, a.encounterID or 0)
+                 < EncounterIndex(ib, b.encounterID or 0)
+        end
+
         local sa, sb = a.score or 0, b.score or 0
         if sa ~= sb then return sa > sb end
         local wa, wb = a.wish or 0, b.wish or 0
         if wa ~= wb then return wa > wb end
         local ia, ib = a.instanceID or 0, b.instanceID or 0
         if ia ~= ib then return ia < ib end
-        return (a.encounterID or 0) < (b.encounterID or 0)
+        return EncounterIndex(ia, a.encounterID or 0)
+             < EncounterIndex(ib, b.encounterID or 0)
     end)
     return out
 end
@@ -1451,6 +1498,12 @@ function UI:Render()
         if src.encounterID then
             label = EJ_GetEncounterInfo and EJ_GetEncounterInfo(src.encounterID)
             label = label or ("Boss " .. src.encounterID)
+            -- Nummer davor, damit die Reihenfolge im Raid auf einen Blick
+            -- ablesbar ist und nicht nur aus der Anordnung folgt.
+            local idx = EncounterIndex(src.instanceID, src.encounterID)
+            if idx and idx < 99 then
+                label = "|c" .. INK_DIM .. idx .. ".|r  " .. label
+            end
         else
             label = EJ_GetInstanceInfo and EJ_GetInstanceInfo(src.instanceID)
             label = label or ("Instanz " .. src.instanceID)

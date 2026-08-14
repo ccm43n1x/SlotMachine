@@ -84,10 +84,26 @@ btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ns.Minimap = {}
 
+-- Init laeuft ueber ADDON_LOADED. Kommt dort etwas dazwischen, gab es bisher
+-- keinen zweiten Versuch und der Knopf blieb unsichtbar, weil er ohne
+-- SetPoint gar nicht platziert war. Deshalb sichert ein eigener Event-Frame
+-- zusaetzlich bei PLAYER_ENTERING_WORLD nach.
+local placed = false
+
 function ns.Minimap:Init()
+    -- SavedVariables selbst absichern, nicht auf die Ladereihenfolge verlassen
+    SlotMachineDB = SlotMachineDB or {}
     Place(tonumber(SlotMachineDB.minimapAngle) or 200)
     if SlotMachineDB.hideMinimap then btn:Hide() else btn:Show() end
+    placed = true
 end
+
+local guard = CreateFrame("Frame")
+guard:RegisterEvent("PLAYER_ENTERING_WORLD")
+guard:SetScript("OnEvent", function(self)
+    if not placed then ns.Minimap:Init() end
+    self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+end)
 
 function ns.Minimap:Toggle()
     SlotMachineDB.hideMinimap = not SlotMachineDB.hideMinimap

@@ -155,6 +155,14 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
         end
         Say("Fertig. Jetzt |cffffd100/reload|r, dann liegt die Liste in der Datei.")
 
+    elseif cmd == "minimap" then
+        if ns.Minimap then
+            ns.Minimap:Toggle()
+            Say("Minimap-Knopf: " .. (ns.Minimap:IsHidden() and "aus" or "an"))
+        else
+            Say("Minimap-Modul nicht geladen.")
+        end
+
     elseif cmd == "chat" then
         ns.Scanner:ListChatWindows()
 
