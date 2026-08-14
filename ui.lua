@@ -146,12 +146,21 @@ end
 -- Addon. Wer Rot und Gruen nicht unterscheiden kann, liest die Stufe am
 -- Symbol ab.
 
+-- Farben sind Blizzards eigene Qualitaetsfarben, von hoch nach niedrig:
+-- Legendaer orange, Episch lila, Selten blau, Ungewoehnlich gruen, Schlecht
+-- grau. Jeder WoW-Spieler liest diese Rangfolge ohne Legende, weil er sie seit
+-- Jahren aus jedem Tooltip kennt. Eine eigene Palette muesste man erst lernen.
+--
+-- Die Zeichen bleiben im Code, werden aber standardmaessig NICHT angezeigt.
+-- Der farbige Rahmen allein genuegt fuer die Unterscheidung. Wer sie braucht,
+-- etwa bei Rot-Gruen-Schwaeche, schaltet sie in den Einstellungen zu: Orange
+-- und Gruen liegen bei Deuteranopie dicht beieinander.
 local TIERS = {
-    BIS   = { order = 1, weight = 4, label = "Best in Slot",    mark = "*", color = "ffe8c15a" },
-    MUST  = { order = 2, weight = 2, label = "Muss ich haben",  mark = "!", color = "ff0ca30c" },
-    NICE  = { order = 3, weight = 1, label = "Wäre ganz nett",  mark = "+", color = "ff4a9edb" },
-    OFF   = { order = 4, weight = 1, label = "Für den Off-Spec", mark = "o", color = "ffd88c2a" },
-    XMOG  = { order = 5, weight = 0, label = "Nur Transmog",    mark = "~", color = "ffa855d6" },
+    BIS   = { order = 1, weight = 4, label = "Best in Slot",     mark = "*", color = "ffff8000" },
+    MUST  = { order = 2, weight = 2, label = "Muss ich haben",   mark = "!", color = "ffa335ee" },
+    NICE  = { order = 3, weight = 1, label = "Wäre ganz nett",   mark = "+", color = "ff0070dd" },
+    OFF   = { order = 4, weight = 1, label = "Für den Off-Spec", mark = "o", color = "ff1eff00" },
+    XMOG  = { order = 5, weight = 0, label = "Nur Transmog",     mark = "~", color = "ff9d9d9d" },
 }
 local TIER_ORDER = { "BIS", "MUST", "NICE", "OFF", "XMOG" }
 
@@ -208,17 +217,42 @@ local currentSpec = nil         -- nil heisst: alle Spezialisierungen
 -- Charakter, vor dem er sitzt. Fuer Twinks wechselt man ohnehin den Charakter,
 -- und die Wunschliste haengt sowieso am Charakter.
 
-local function MySpecs()
+local function SpecsOfClass(classID)
     local out = {}
-    local _, _, classID = UnitClass("player")
-    if not classID then return out end
     local n = 0
     pcall(function() n = GetNumSpecializationsForClassID(classID) or 0 end)
     for i = 1, n do
         local ok, specID, name = pcall(GetSpecializationInfoForClassID, classID, i)
-        if ok and specID then out[#out + 1] = { id = specID, name = name } end
+        if ok and specID then out[#out + 1] = { id = specID, name = name, classID = classID } end
     end
     return out
+end
+
+-- Standardmaessig nur die eigene Klasse. Wer fuer Twinks oder Mitspieler
+-- schauen will, schaltet in den Einstellungen alle Klassen zu. Die Liste wird
+-- dann rund vierzig Eintraege lang, deshalb ist sie nicht der Standard.
+local function MySpecs()
+    if SlotMachineDB.allClasses then
+        local out = {}
+        local numClasses = (GetNumClasses and GetNumClasses()) or 13
+        for classID = 1, numClasses do
+            local className = nil
+            pcall(function()
+                local info = C_CreatureInfo and C_CreatureInfo.GetClassInfo
+                    and C_CreatureInfo.GetClassInfo(classID)
+                className = info and info.className
+            end)
+            for _, s in ipairs(SpecsOfClass(classID)) do
+                s.className = className
+                out[#out + 1] = s
+            end
+        end
+        return out
+    end
+
+    local _, _, classID = UnitClass("player")
+    if not classID then return {} end
+    return SpecsOfClass(classID)
 end
 
 local function ActiveSpecID()
@@ -263,41 +297,80 @@ local function PassesSlot(itemID)
     return GroupOfItem(itemID) == currentSlot
 end
 
--- Liefert eine Liste von Quellen, sortiert nach Anzahl der Wunsch-Items.
+-- Sortiert die Items einer Zeile: wichtigstes zuerst, damit ganz links steht
+-- was zaehlt.
+local function SortItems(list)
+    table.sort(list, function(a, b)
+        local ta, tb = TierOf(a), TierOf(b)
+        local wa = ta and TIERS[ta].order or 99
+        local wb = tb and TIERS[tb].order or 99
+        if wa ~= wb then return wa < wb end
+        return a < b
+    end)
+end
+
+-- Liefert die Quellen, sortiert nach Gewicht der Wunsch-Items.
 -- Das ist der Kern des Add-ons: Wo am meisten fuer dich drin ist, steht oben.
+--
+-- Zwei Gruppierungen, umschaltbar in den Einstellungen:
+--   Dungeon (Standard) - eine Zeile je Instanz, alle Bosse zusammengefasst.
+--     Beantwortet die Frage "wo gehe ich hin", und das ist die Frage, die man
+--     sich zuerst stellt.
+--   Boss - eine Zeile je Boss. Beantwortet "auf wen freue ich mich", nuetzlich
+--     im Raid, wo man einzelne Bosse gezielt ansteuert.
 local function BuildSources()
     local out = {}
     if not ns.LOOT then return out end
 
+    local byDungeon = (SlotMachineDB.groupBy or "DUNGEON") == "DUNGEON"
+
     for instID, bosses in pairs(ns.LOOT) do
         local isRaid = IsRaid(instID)
         if (currentTab == "RAID") == isRaid then
-            for encID, items in pairs(bosses) do
-                local shown, wish, score = {}, 0, 0
-                for _, itemID in ipairs(items) do
-                    if PassesSlot(itemID) then
-                        shown[#shown + 1] = itemID
-                        local t = TierOf(itemID)
-                        if t then
-                            wish = wish + 1
-                            score = score + (TIERS[t] and TIERS[t].weight or 0)
+            if byDungeon then
+                local shown, wish, score, seen = {}, 0, 0, {}
+                for _, items in pairs(bosses) do
+                    for _, itemID in ipairs(items) do
+                        -- Ein Item kann bei mehreren Bossen fallen. In der
+                        -- Dungeon-Ansicht darf es trotzdem nur einmal stehen.
+                        if not seen[itemID] and PassesSlot(itemID) then
+                            seen[itemID] = true
+                            shown[#shown + 1] = itemID
+                            local t = TierOf(itemID)
+                            if t then
+                                wish = wish + 1
+                                score = score + (TIERS[t] and TIERS[t].weight or 0)
+                            end
                         end
                     end
                 end
                 if #shown > 0 then
-                    -- Innerhalb einer Zeile die wichtigsten Items zuerst,
-                    -- damit man ganz links sieht was zaehlt.
-                    table.sort(shown, function(a, b)
-                        local ta, tb = TierOf(a), TierOf(b)
-                        local wa = ta and TIERS[ta].order or 99
-                        local wb = tb and TIERS[tb].order or 99
-                        if wa ~= wb then return wa < wb end
-                        return a < b
-                    end)
+                    SortItems(shown)
                     out[#out + 1] = {
-                        instanceID = instID, encounterID = encID,
+                        instanceID = instID, encounterID = nil,
                         items = shown, wish = wish, score = score, isRaid = isRaid,
                     }
+                end
+            else
+                for encID, items in pairs(bosses) do
+                    local shown, wish, score = {}, 0, 0
+                    for _, itemID in ipairs(items) do
+                        if PassesSlot(itemID) then
+                            shown[#shown + 1] = itemID
+                            local t = TierOf(itemID)
+                            if t then
+                                wish = wish + 1
+                                score = score + (TIERS[t] and TIERS[t].weight or 0)
+                            end
+                        end
+                    end
+                    if #shown > 0 then
+                        SortItems(shown)
+                        out[#out + 1] = {
+                            instanceID = instID, encounterID = encID,
+                            items = shown, wish = wish, score = score, isRaid = isRaid,
+                        }
+                    end
                 end
             end
         end
@@ -464,14 +537,19 @@ specMenu.entries = {}
 local function BuildSpecMenu()
     local list = MySpecs()
     local rows = #list + 1                     -- plus "Alle Specs"
-    specMenu:SetSize(140, rows * 20 + 8)
+    -- Bei allen Klassen wird die Liste rund vierzig Eintraege lang und muesste
+    -- unten aus dem Bildschirm laufen. Deshalb breiter und nach oben verankert.
+    local wide = SlotMachineDB.allClasses
+    specMenu:SetSize(wide and 210 or 140, rows * 20 + 8)
+    specMenu:ClearAllPoints()
     specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
+    for _, e in ipairs(specMenu.entries) do e:SetWidth((wide and 210 or 140) - 4) end
 
     local function entry(i)
         local e = specMenu.entries[i]
         if e then return e end
         e = CreateFrame("Button", nil, specMenu)
-        e:SetSize(136, 20)
+        e:SetSize(206, 20)
         e:SetPoint("TOPLEFT", specMenu, "TOPLEFT", 2, -(2 + (i - 1) * 20))
         e.fill = e:CreateTexture(nil, "BACKGROUND")
         e.fill:SetAllPoints()
@@ -495,7 +573,10 @@ local function BuildSpecMenu()
     for i, s in ipairs(list) do
         local e = entry(i + 1)
         local suffix = (s.id == active) and ("  |c" .. INK_DIM .. "(aktiv)|r") or ""
-        e.text:SetText("|c" .. INK .. s.name .. "|r" .. suffix)
+        -- Bei allen Klassen den Klassennamen davor, sonst weiss man bei
+        -- "Frost" nicht ob Magier oder Todesritter gemeint ist.
+        local prefix = s.className and ("|c" .. INK_DIM .. s.className .. " |r") or ""
+        e.text:SetText(prefix .. "|c" .. INK .. s.name .. "|r" .. suffix)
         e:SetScript("OnClick", function()
             currentSpec = s.id; specMenu:Hide(); ns.UI:Render()
         end)
@@ -540,19 +621,26 @@ local function GetRow(i)
     r.fill = r:CreateTexture(nil, "BACKGROUND")
     r.fill:SetAllPoints()
 
+    -- Name und Zaehler oben ausgerichtet, weil die Zeile bei vielen Icons
+    -- mehrzeilig wird und der Text sonst in der Mitte schwebt.
     r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    r.name:SetPoint("LEFT", r, "LEFT", 6, 0)
+    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 6, -6)
     r.name:SetWidth(LABEL_W - 34)
     r.name:SetJustifyH("LEFT")
     r.name:SetWordWrap(false)
 
     r.badge = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    r.badge:SetPoint("LEFT", r, "LEFT", LABEL_W - 26, 0)
+    r.badge:SetPoint("TOPLEFT", r, "TOPLEFT", LABEL_W - 26, -6)
 
     r.icons = {}
     rowPool[i] = r
     return r
 end
+
+-- Wie viele Icons passen nebeneinander, bevor umgebrochen wird. In der
+-- Dungeon-Ansicht kommen alle Bosse einer Instanz in EINE Zeile, da reicht
+-- eine Reihe nicht mehr aus.
+local ICONS_PER_ROW = math.floor((WIDTH - PAD * 2 - 24 - LABEL_W) / (ICON + ICON_GAP))
 
 local function GetIcon(row, i)
     local b = row.icons[i]
@@ -560,7 +648,6 @@ local function GetIcon(row, i)
 
     b = CreateFrame("Button", nil, row)
     b:SetSize(ICON, ICON)
-    b:SetPoint("LEFT", row, "LEFT", LABEL_W + (i - 1) * (ICON + ICON_GAP), 0)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.tex = b:CreateTexture(nil, "ARTWORK")
     b.tex:SetPoint("TOPLEFT", 1, -1)
@@ -702,12 +789,13 @@ function UI:Render()
     local y, rowI, headI = 0, 0, 0
     local lastInstance = nil
 
+    local byDungeon = (SlotMachineDB.groupBy or "DUNGEON") == "DUNGEON"
+
     for _, src in ipairs(sources) do
-        -- Instanz-Ueberschrift, sobald die Instanz wechselt. Nur sinnvoll,
-        -- solange nach Instanz gruppiert wird. Da wir nach Wunsch-Anzahl
-        -- sortieren, kann dieselbe Instanz mehrfach auftauchen, deshalb wird
-        -- die Ueberschrift nur bei echtem Wechsel gesetzt.
-        if src.instanceID ~= lastInstance then
+        -- Instanz-Ueberschrift nur in der Boss-Ansicht. In der Dungeon-Ansicht
+        -- IST der Instanzname schon der Zeilenname, eine Ueberschrift darueber
+        -- waere die reine Wiederholung.
+        if not byDungeon and src.instanceID ~= lastInstance then
             headI = headI + 1
             local h = GetHeader(headI)
             h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
@@ -724,10 +812,22 @@ function UI:Render()
         rowI = rowI + 1
         local row = GetRow(rowI)
         row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+
+        -- Zeilenhoehe richtet sich nach der Anzahl der Icon-Reihen
+        local iconRows = math.max(1, math.ceil(#src.items / ICONS_PER_ROW))
+        local rowHeight = iconRows * (ICON + ICON_GAP) + 8
+        row:SetHeight(rowHeight)
         row:Show()
 
-        local bname = EJ_GetEncounterInfo and EJ_GetEncounterInfo(src.encounterID)
-        row.name:SetText("|c" .. INK .. (bname or ("Boss " .. src.encounterID)) .. "|r")
+        local label
+        if src.encounterID then
+            label = EJ_GetEncounterInfo and EJ_GetEncounterInfo(src.encounterID)
+            label = label or ("Boss " .. src.encounterID)
+        else
+            label = EJ_GetInstanceInfo and EJ_GetInstanceInfo(src.instanceID)
+            label = label or ("Instanz " .. src.instanceID)
+        end
+        row.name:SetText("|c" .. INK .. label .. "|r")
         -- Zeigt das GEWICHT, nicht die Anzahl. Das ist die Zahl, nach der
         -- sortiert wird, also muss sie auch sichtbar sein.
         row.badge:SetText(src.score > 0 and ("|c" .. ACCENT .. src.score .. "|r") or "")
@@ -736,6 +836,11 @@ function UI:Render()
         for _, b in pairs(row.icons) do b:Hide() end
         for i, itemID in ipairs(src.items) do
             local b = GetIcon(row, i)
+            local col = (i - 1) % ICONS_PER_ROW
+            local lin = math.floor((i - 1) / ICONS_PER_ROW)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", row, "TOPLEFT",
+                LABEL_W + col * (ICON + ICON_GAP), -(4 + lin * (ICON + ICON_GAP)))
             local rec = ns.ITEMS[itemID] or {}
             b.tex:SetTexture(rec.icon or 134400)   -- Fragezeichen als Rueckfall
             b:Show()
@@ -752,9 +857,16 @@ function UI:Render()
             if tier then
                 local r, g, bl = HexToRGB(tier.color)
                 for _, t in ipairs(b.edges) do t:SetColorTexture(r, g, bl, 0.95) end
-                b.markBg:Show()
-                b.mark:SetText("|c" .. tier.color .. tier.mark .. "|r")
-                b.mark:Show()
+                -- Zeichen nur auf Wunsch. Der farbige Rahmen genuegt normal,
+                -- die Zeichen sind fuer Farbsehschwaeche gedacht.
+                if SlotMachineDB.showMarks then
+                    b.markBg:Show()
+                    b.mark:SetText("|c" .. tier.color .. tier.mark .. "|r")
+                    b.mark:Show()
+                else
+                    b.markBg:Hide()
+                    b.mark:Hide()
+                end
             else
                 for _, t in ipairs(b.edges) do
                     t:SetColorTexture(EDGE[1], EDGE[2], EDGE[3], 0.35)
@@ -786,7 +898,7 @@ function UI:Render()
             b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         end
 
-        y = y + ROW_H + 2
+        y = y + rowHeight + 2
     end
 
     if rowI == 0 then
@@ -799,6 +911,125 @@ function UI:Render()
     end
 
     content:SetSize(WIDTH - PAD * 2 - 24, math.max(1, y))
+end
+
+-- ----------------------------------------------------------------------------
+-- Einstellungen
+-- ----------------------------------------------------------------------------
+
+local optFrame = CreateFrame("Frame", nil, frame)
+optFrame:SetSize(300, 200)
+optFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(PAD + 26))
+optFrame:SetFrameStrata("DIALOG")
+optFrame:Hide()
+local obg = optFrame:CreateTexture(nil, "BACKGROUND")
+obg:SetAllPoints()
+obg:SetColorTexture(BG[1], BG[2], BG[3], 0.99)
+AddEdges(optFrame)
+
+local optTitle = optFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+optTitle:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -8)
+optTitle:SetText("|c" .. ACCENT .. "EINSTELLUNGEN|r")
+
+-- Ein Umschalter. Kein Blizzard-Widget, weil deren Checkbox eine feste Optik
+-- mitbringt, die neben der flachen Flaeche hier fremd wirkt.
+local function MakeToggle(parent, y, label, get, set, hint)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(280, 22)
+    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+
+    b.box = b:CreateTexture(nil, "ARTWORK")
+    b.box:SetSize(12, 12)
+    b.box:SetPoint("LEFT", b, "LEFT", 0, 0)
+
+    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.text:SetPoint("LEFT", b, "LEFT", 20, 0)
+    b.text:SetText("|c" .. INK .. label .. "|r")
+
+    function b:Refresh()
+        local on = get()
+        if on then
+            local r, g, bl = HexToRGB(ACCENT)
+            self.box:SetColorTexture(r, g, bl, 0.95)
+        else
+            self.box:SetColorTexture(SURFACE[1], SURFACE[2], SURFACE[3], 0.9)
+        end
+    end
+
+    b:SetScript("OnClick", function(self) set(not get()); self:Refresh(); ns.UI:Render() end)
+    b:SetScript("OnEnter", function(self)
+        if not hint then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(label, 1, 1, 1)
+        GameTooltip:AddLine(hint, 0.65, 0.63, 0.58, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:Refresh()
+    return b
+end
+
+local optToggles = {}
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -32, "Eine Zeile pro Boss statt pro Dungeon",
+    function() return (SlotMachineDB.groupBy or "DUNGEON") == "BOSS" end,
+    function(v) SlotMachineDB.groupBy = v and "BOSS" or "DUNGEON" end,
+    "Standard ist eine Zeile je Dungeon, weil die erste Frage lautet: wo gehe ich hin. Die Boss-Ansicht lohnt im Raid, wo einzelne Bosse gezielt angesteuert werden.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -58, "Alle Klassen im Spec-Filter",
+    function() return SlotMachineDB.allClasses end,
+    function(v) SlotMachineDB.allClasses = v or nil end,
+    "Zeigt alle 40 Spezialisierungen statt nur die der eigenen Klasse. Nützlich für Twinks oder wenn man für Mitspieler schaut.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -84, "Zeichen an markierten Items",
+    function() return SlotMachineDB.showMarks end,
+    function(v) SlotMachineDB.showMarks = v or nil end,
+    "Blendet zusätzlich zum farbigen Rahmen ein Zeichen ein. Sinnvoll bei Farbsehschwäche: Orange und Grün liegen bei Deuteranopie dicht beieinander.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -110, "Minimap-Knopf anzeigen",
+    function() return not (ns.Minimap and ns.Minimap:IsHidden()) end,
+    function() if ns.Minimap then ns.Minimap:Toggle() end end,
+    "Der Knopf lässt sich per Ziehen um die Minimap bewegen.")
+
+local optLegend = optFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+optLegend:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -140)
+optLegend:SetWidth(280)
+optLegend:SetJustifyH("LEFT")
+do
+    local parts = {}
+    for _, key in ipairs(TIER_ORDER) do
+        local t = TIERS[key]
+        parts[#parts + 1] = "|c" .. t.color .. t.label .. "|r (" .. t.weight .. ")"
+    end
+    optLegend:SetText("Gewichtung: " .. table.concat(parts, ", "))
+end
+
+local gearBtn = CreateFrame("Button", nil, frame)
+gearBtn:SetSize(20, 20)
+gearBtn:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
+gearBtn.label = gearBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+gearBtn.label:SetPoint("CENTER")
+gearBtn.label:SetText("|c" .. INK_DIM .. "o|r")
+gearBtn:SetScript("OnEnter", function(self)
+    self.label:SetText("|c" .. ACCENT .. "o|r")
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Einstellungen")
+    GameTooltip:Show()
+end)
+gearBtn:SetScript("OnLeave", function(self)
+    self.label:SetText("|c" .. INK_DIM .. "o|r")
+    GameTooltip:Hide()
+end)
+gearBtn:SetScript("OnClick", function() ns.UI:ToggleOptions() end)
+
+function UI:ToggleOptions()
+    if optFrame:IsShown() then
+        optFrame:Hide()
+    else
+        if not frame:IsShown() then frame:Show(); UI:Render() end
+        for _, t in ipairs(optToggles) do t:Refresh() end
+        optFrame:Show()
+    end
 end
 
 function UI:Toggle()

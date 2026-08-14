@@ -18,6 +18,11 @@ local DEFAULTS = {
     scanResults = {},   -- Rohdaten des Entwickler-Scans
     scanStamp   = nil,  -- wann zuletzt gescannt
     point = "CENTER", relPoint = "CENTER", x = 0, y = 0,
+    groupBy      = "DUNGEON",  -- eine Zeile je Dungeon, alternativ "BOSS"
+    allClasses   = nil,        -- alle 40 Specs im Filter statt nur eigene Klasse
+    showMarks    = nil,        -- Zeichen zusaetzlich zum farbigen Rahmen
+    minimapAngle = 200,        -- Position des Minimap-Knopfes als Winkel
+    hideMinimap  = nil,
 }
 
 local CHAR_DEFAULTS = {
@@ -151,6 +156,7 @@ init:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == AddonName then
         ApplyDefaults()
         if ns.UI and ns.UI.RestorePosition then ns.UI:RestorePosition() end
+        if ns.Minimap then ns.Minimap:Init() end
 
         local n = 0
         for _ in pairs(ns.ITEMS or {}) do n = n + 1 end

@@ -13,4 +13,5 @@ data.lua
 scanner.lua
 scanner_full.lua
 ui.lua
+minimap.lua
 main.lua
