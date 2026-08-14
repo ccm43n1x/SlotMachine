@@ -129,6 +129,27 @@ local function GroupOfItem(itemID)
 end
 
 -- ----------------------------------------------------------------------------
+-- Zustand
+-- ----------------------------------------------------------------------------
+-- STEHT BEWUSST GANZ OBEN, vor jeder Verwendung.
+--
+-- Diese Variablen standen urspruenglich weiter unten, wurden aber schon in
+-- SourceList und CurrentSource benutzt. Dort loeste der Name deshalb auf eine
+-- nicht existierende GLOBALE Variable auf, und "currentTab == RAID" war
+-- grundsaetzlich falsch. Folge: Der Raid-Tab war korrekt markiert, weil das
+-- Rendering weiter unten die echte lokale Variable liest, aber das Dropdown
+-- zeigte hartnaeckig die Dungeon-Liste.
+--
+-- Das ist derselbe Fehler, der am 14.08.2026 viermal zugeschlagen hat: einmal
+-- bei ApplyAlpha in Chrissi's Addon, einmal bei MenuEntry, einmal bei rollBtn
+-- und hier. In Lua gilt eine lokale Variable erst AB ihrer Deklaration, alles
+-- davor greift stillschweigend auf eine Globale zu. Es gibt keine Warnung.
+local currentTab   = "DUNGEON"  -- oder "RAID"
+local currentSlot  = "ALL"
+local currentSpec  = nil        -- nil heisst: alle Spezialisierungen
+local currentClass = nil        -- gesetzt, wenn eine ganze Klasse gewaehlt ist
+
+-- ----------------------------------------------------------------------------
 -- Item Level
 -- ----------------------------------------------------------------------------
 -- Keystone Loot zeigt das Itemlevel ABSOLUT an: "dieses Teil hat 311". Die
@@ -403,10 +424,7 @@ end
 -- Zustand
 -- ----------------------------------------------------------------------------
 
-local currentTab  = "DUNGEON"   -- oder "RAID"
-local currentSlot = "ALL"
-local currentSpec  = nil        -- nil heisst: alle Spezialisierungen
-local currentClass = nil        -- gesetzt, wenn eine ganze Klasse gewaehlt ist
+-- (Zustandsvariablen stehen weiter oben, vor ihrer ersten Verwendung.)
 
 -- ----------------------------------------------------------------------------
 -- Spezialisierungen
