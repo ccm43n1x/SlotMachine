@@ -91,6 +91,27 @@ local function ReadInstance(inst, store)
             if info.filterType                 then rec.filterType = info.filterType end
             if info.itemQuality                then rec.quality    = info.itemQuality end
 
+            -- Sprachunabhaengiger Ausruestungsplatz.
+            --
+            -- Notwendig geworden durch die Gegenprobe im Generator am
+            -- 14.08.2026: filterType ist bei Waffen NICHT eindeutig. Die 10
+            -- steht gleichzeitig fuer One-Hand, Two-Hand, Ranged und Main
+            -- Hand, die 11 fuer Off Hand und Held In Off-hand. Fuer einen
+            -- Loot-Planer ist das unbrauchbar, denn wer einen Einhaender
+            -- sucht, will keinen Zweihaender vorgeschlagen bekommen.
+            --
+            -- Der Slot-Text waere eindeutig, ist aber uebersetzt und damit
+            -- auf einem deutschen Client ein anderer. GetItemInfoInstant
+            -- liefert stattdessen Konstanten wie INVTYPE_2HWEAPON, ist
+            -- synchron und braucht keinen Cache.
+            if not rec.equipLoc and C_Item and C_Item.GetItemInfoInstant then
+                local ok3, _, itemType, itemSubType, equipLoc = pcall(C_Item.GetItemInfoInstant, info.itemID)
+                if ok3 and equipLoc and equipLoc ~= "" then
+                    rec.equipLoc = equipLoc
+                    rec.subType  = itemSubType
+                end
+            end
+
             store.items[info.itemID] = rec
 
             -- Vollstaendigkeit haengt am NAMEN, nicht am Slot.
