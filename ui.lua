@@ -791,9 +791,12 @@ local function BuildSourceMenu()
         local lvl = r and r.ilvl or "?"
         local col = (s.key == cur.key) and ACCENT or INK
         e.text:SetText("|c" .. col .. s.label .. "|r")
-        -- Kuerzel in Stufenfarbe vor dem Itemlevel, damit auf einen Blick
-        -- erkennbar ist, aus welchem Track das Niveau stammt.
-        e.arrow:SetText("|c" .. (s.color or INK_DIM) .. (s.short or "") .. "|r |c" .. INK_DIM .. lvl .. "|r")
+        -- Kuerzel in der Farbe des ERGEBNIS-Tracks. Bei aktivem Bonus Roll
+        -- wandert sie mit, weil dann ein anderer Track herauskommt. Das "+"
+        -- macht sichtbar, dass hier der Bonus Roll gerechnet ist.
+        local sc = (r and r.color) or s.color or INK_DIM
+        local sh = (s.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
+        e.arrow:SetText("|c" .. sc .. sh .. "|r |c" .. INK_DIM .. lvl .. "|r")
         e:SetScript("OnClick", function()
             SetCurrentSource(s.key)
             srcMenu:Hide(); ns.UI:Render()
@@ -1182,7 +1185,10 @@ function UI:Render()
     local src = CurrentSource()
     local res = ns.ResolveSource and ns.ResolveSource(src, SlotMachineDB.bonusRoll)
     if src then
-        srcBtn.text:SetText("|c" .. (src.color or INK) .. (src.short or "") .. "|r |c" .. INK .. src.label .. "|r")
+        -- Farbe vom Ergebnis-Track, nicht von der Quelle. Siehe tracks.lua.
+        local sc = (res and res.color) or src.color or INK
+        local sh = (src.short or "") .. (SlotMachineDB.bonusRoll and "+" or "")
+        srcBtn.text:SetText("|c" .. sc .. sh .. "|r |c" .. INK .. src.label .. "|r")
     else
         srcBtn.text:SetText("|c" .. INK .. "?|r")
     end
@@ -1347,8 +1353,27 @@ function UI:Render()
                         b.ilvl:SetText("|c" .. INK_DIM .. lvl .. "|r")
                     else
                         local d = lvl - mine
-                        local col = (d > 0 and GREEN) or (d < 0 and INK_DIM) or INK_DIM
-                        b.ilvl:SetText("|c" .. col .. (d > 0 and ("+" .. d) or tostring(d)) .. "|r")
+                        local col = (d > 0 and GREEN) or INK_DIM
+                        if SlotMachineDB.charGain then
+                            -- Auswirkung auf das GESAMTE Charakter-Itemlevel.
+                            --
+                            -- Das Durchschnitts-Itemlevel bildet sich aus
+                            -- sechzehn Ausruestungsplaetzen. Ein Zugewinn in
+                            -- einem Slot schlaegt also nur mit einem
+                            -- Sechzehntel durch. Aus "+26 am Ring" werden
+                            -- "+1.6" am Charakter, und das ist die Zahl, die
+                            -- am Ende in der Gruppensuche zaehlt.
+                            --
+                            -- Die Sechzehn ist keine Schaetzung: Sie steht so
+                            -- in der eigenen Master-Notiz, wo begruendet wird,
+                            -- dass ein einzelnes schwaches Teil den Schnitt um
+                            -- rund ein Sechzehntel nach unten zieht.
+                            local g = d / 16
+                            b.ilvl:SetText(string.format("|c%s%s%.1f|r",
+                                col, (g > 0 and "+" or ""), g))
+                        else
+                            b.ilvl:SetText("|c" .. col .. (d > 0 and ("+" .. d) or tostring(d)) .. "|r")
+                        end
                     end
                     b.ilvlBg:Show(); b.ilvl:Show()
                 end
@@ -1449,7 +1474,7 @@ end
 -- ----------------------------------------------------------------------------
 
 local optFrame = CreateFrame("Frame", nil, frame)
-optFrame:SetSize(320, 250)
+optFrame:SetSize(320, 276)
 optFrame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(PAD + 26))
 optFrame:SetFrameStrata("DIALOG")
 optFrame:Hide()
@@ -1522,18 +1547,23 @@ optToggles[#optToggles + 1] = MakeToggle(optFrame, -110, "Item Level absolut sta
     function(v) SlotMachineDB.absoluteItemLevel = v or nil end,
     "Standard ist die Differenz zu deinem angelegten Teil, also +13 statt 311. Bei Doppelplätzen wie Ringen wird gegen das schwächere der beiden gerechnet, weil du dieses ersetzen würdest.")
 
-optToggles[#optToggles + 1] = MakeToggle(optFrame, -136, "Item Level ganz ausblenden",
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -136, "Zugewinn fürs Charakter-Item-Level",
+    function() return SlotMachineDB.charGain end,
+    function(v) SlotMachineDB.charGain = v or nil end,
+    "Rechnet die Differenz auf das gesamte Charakter-Item-Level um. Ein Zugewinn in einem Slot schlägt nur mit einem Sechzehntel durch, aus +26 am Ring werden also +1.6 am Charakter. Das ist die Zahl, die in der Gruppensuche zählt.")
+
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -162, "Item Level ganz ausblenden",
     function() return SlotMachineDB.hideItemLevel end,
     function(v) SlotMachineDB.hideItemLevel = v or nil end,
     "Blendet die Zahl am Icon aus. Der Tooltip zeigt sie weiterhin.")
 
-optToggles[#optToggles + 1] = MakeToggle(optFrame, -162, "Minimap-Knopf anzeigen",
+optToggles[#optToggles + 1] = MakeToggle(optFrame, -188, "Minimap-Knopf anzeigen",
     function() return not (ns.Minimap and ns.Minimap:IsHidden()) end,
     function() if ns.Minimap then ns.Minimap:Toggle() end end,
     "Der Knopf lässt sich per Ziehen um die Minimap bewegen.")
 
 local optLegend = optFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-optLegend:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -194)
+optLegend:SetPoint("TOPLEFT", optFrame, "TOPLEFT", 10, -220)
 optLegend:SetWidth(300)
 optLegend:SetJustifyH("LEFT")
 do

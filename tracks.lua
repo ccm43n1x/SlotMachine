@@ -22,14 +22,24 @@
 local AddonName, ns = ...
 
 -- Vier Track-Familien, je sechs Raenge. bonus = Bonus-ID fuer diesen Rang.
+--
+-- Die Farbe gehoert an den TRACK, nicht an die Quelle. Sonst stimmt sie nicht
+-- mehr, sobald ein Bonus Roll das Ergebnis in einen anderen Track hebt: Ein
+-- M0 liefert mit Bonus Roll ein Hero-Teil, wurde aber weiter in
+-- Champion-Gruen angezeigt. Genau die Information, die sich aendert, wurde
+-- dadurch falsch dargestellt.
 ns.TRACKS = {
-    veteran   = { name = "Veteran",  ilvl = { 279, 282, 285, 289, 292, 295 },
+    veteran   = { name = "Veteran",  color = "ff9d9d9d",
+                  ilvl = { 279, 282, 285, 289, 292, 295 },
                   bonus = { 12825, 12826, 12827, 12828, 12829, 12830 } },
-    champion  = { name = "Champion", ilvl = { 292, 295, 298, 302, 305, 308 },
+    champion  = { name = "Champion", color = "ff1eff00",
+                  ilvl = { 292, 295, 298, 302, 305, 308 },
                   bonus = { 12833, 12834, 12835, 12836, 12837, 12838 } },
-    hero      = { name = "Held",     ilvl = { 305, 308, 311, 315, 318, 321 },
+    hero      = { name = "Held",     color = "ff0070dd",
+                  ilvl = { 305, 308, 311, 315, 318, 321 },
                   bonus = { 12841, 12842, 12843, 12844, 12845, 12846 } },
-    myth      = { name = "Mythos",   ilvl = { 318, 321, 324, 328, 331, 334 },
+    myth      = { name = "Mythos",   color = "ffa335ee",
+                  ilvl = { 318, 321, 324, 328, 331, 334 },
                   bonus = { 12849, 12850, 12851, 12852, 12853, 12854 } },
 }
 
@@ -99,6 +109,7 @@ function ns.ResolveSource(source, asBonusRoll)
         ilvl    = t.ilvl[rank],
         bonusId = t.bonus[rank],
         track   = t.name,
+        color   = t.color,     -- Farbe des ERGEBNIS-Tracks, nicht der Quelle
         rank    = rank,
     }
 end
