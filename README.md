@@ -6,6 +6,37 @@ Loot- und Farm-Planer für World of Warcraft, Midnight Season 2 (Patch 12.1).
 
 Beantwortet eine Frage, die andere Add-ons offen lassen: **Wo lohnt sich der nächste Run für mich?**
 
+## Installation
+
+**Wichtig: Nicht den grünen „Code"-Knopf benutzen.** Das dortige Zip enthält einen Ordner namens `SlotMachine-main`, und WoW lädt ein Add-on nur, wenn der Ordner exakt so heißt wie die `.toc`-Datei. Mit dem falschen Zip taucht das Add-on gar nicht erst in der Liste auf.
+
+Richtig geht es so:
+
+1. Rechts auf der Projektseite unter **Releases** die neueste Version öffnen
+2. Unter *Assets* die Datei **`SlotMachine-vX.Y.Z.zip`** herunterladen
+3. Das Zip entpacken, darin liegt ein Ordner **`SlotMachine`**
+4. Diesen Ordner nach `World of Warcraft\_retail_\Interface\AddOns\` kopieren
+5. WoW **komplett neu starten**, ein `/reload` genügt bei neuen Add-ons nicht
+6. Im Charakterauswahl-Bildschirm unter *AddOns* prüfen, dass SlotMachine aktiviert ist
+7. Im Spiel `/sm` eingeben
+
+Der Pfad muss am Ende so aussehen:
+
+```
+Interface\AddOns\SlotMachine\SlotMachine.toc
+```
+
+Liegt dort stattdessen `Interface\AddOns\SlotMachine-main\` oder ein zweiter Ordner in der Art `Interface\AddOns\SlotMachine\SlotMachine\`, funktioniert es nicht.
+
+### Wenn es nicht läuft
+
+| Symptom | Ursache |
+|---|---|
+| Add-on taucht in der Liste gar nicht auf | Ordnername falsch, siehe oben |
+| Add-on ist da, `/sm` tut nichts | Lua-Fehler. `/console scriptErrors 1`, dann `/reload` |
+| Fenster öffnet, ist aber leer | `data.lua` fehlt im Ordner |
+| Minimap-Knopf fehlt | `/sm minimap reset` |
+
 ## Was es tut
 
 Du markierst, welche Items du haben willst. SlotMachine sortiert daraufhin die Quellen so, dass oben steht, wo für dich am meisten drin ist.
