@@ -147,12 +147,13 @@ end
 -- Symbol ab.
 
 local TIERS = {
-    BIS   = { order = 1, weight = 4, label = "Best in Slot", mark = "*", color = "ffe8c15a" },
-    MUST  = { order = 2, weight = 2, label = "Muss ich haben", mark = "!", color = "ff0ca30c" },
-    NICE  = { order = 3, weight = 1, label = "Wäre ganz nett", mark = "+", color = "ff4a9edb" },
-    XMOG  = { order = 4, weight = 0, label = "Nur Transmog",   mark = "~", color = "ffa855d6" },
+    BIS   = { order = 1, weight = 4, label = "Best in Slot",    mark = "*", color = "ffe8c15a" },
+    MUST  = { order = 2, weight = 2, label = "Muss ich haben",  mark = "!", color = "ff0ca30c" },
+    NICE  = { order = 3, weight = 1, label = "Wäre ganz nett",  mark = "+", color = "ff4a9edb" },
+    OFF   = { order = 4, weight = 1, label = "Für den Off-Spec", mark = "o", color = "ffd88c2a" },
+    XMOG  = { order = 5, weight = 0, label = "Nur Transmog",    mark = "~", color = "ffa855d6" },
 }
-local TIER_ORDER = { "BIS", "MUST", "NICE", "XMOG" }
+local TIER_ORDER = { "BIS", "MUST", "NICE", "OFF", "XMOG" }
 
 local function TierOf(itemID)
     return SlotMachineCharDB.wanted and SlotMachineCharDB.wanted[itemID] or nil
@@ -197,14 +198,68 @@ end
 
 local currentTab  = "DUNGEON"   -- oder "RAID"
 local currentSlot = "ALL"
+local currentSpec = nil         -- nil heisst: alle Spezialisierungen
+
+-- ----------------------------------------------------------------------------
+-- Spezialisierungen
+-- ----------------------------------------------------------------------------
+-- Bewusst nur die eigene Klasse im Filter. Ein volles Klassen-Untermenue wie
+-- bei Keystone Loot ist fuer den MVP Ballast: Wer Loot plant, plant fuer den
+-- Charakter, vor dem er sitzt. Fuer Twinks wechselt man ohnehin den Charakter,
+-- und die Wunschliste haengt sowieso am Charakter.
+
+local function MySpecs()
+    local out = {}
+    local _, _, classID = UnitClass("player")
+    if not classID then return out end
+    local n = 0
+    pcall(function() n = GetNumSpecializationsForClassID(classID) or 0 end)
+    for i = 1, n do
+        local ok, specID, name = pcall(GetSpecializationInfoForClassID, classID, i)
+        if ok and specID then out[#out + 1] = { id = specID, name = name } end
+    end
+    return out
+end
+
+local function ActiveSpecID()
+    local idx = GetSpecialization and GetSpecialization()
+    if not idx then return nil end
+    local ok, specID = pcall(GetSpecializationInfo, idx)
+    return ok and specID or nil
+end
+
+local function SpecName(specID)
+    if not specID then return "Alle Specs" end
+    local ok, _, name = pcall(GetSpecializationInfoByID, specID)
+    return (ok and name) or ("Spec " .. specID)
+end
+
+-- Kann die gewaehlte Spec dieses Item tragen?
+local function PassesSpec(itemID)
+    if not currentSpec then return true end
+    local rec = ns.ITEMS and ns.ITEMS[itemID]
+    if not rec then return true end
+    if rec.s == nil then return true end        -- keine Angabe, nicht ausblenden
+    if rec.s == "*" then return true end        -- jede Spec
+    if type(rec.s) == "table" then
+        for _, id in ipairs(rec.s) do
+            if id == currentSpec then return true end
+        end
+        return false
+    end
+    return true
+end
 
 -- ----------------------------------------------------------------------------
 -- Daten fuer die Anzeige aufbereiten
 -- ----------------------------------------------------------------------------
 
 local function PassesSlot(itemID)
-    if currentSlot == "ALL"  then return true end
+    -- Die Wunschliste ignoriert den Spec-Filter bewusst. Wer etwas markiert
+    -- hat, will es sehen, auch wenn es fuer den Off-Spec ist.
     if currentSlot == "WISH" then return Wanted(itemID) end
+    if not PassesSpec(itemID) then return false end
+    if currentSlot == "ALL"  then return true end
     return GroupOfItem(itemID) == currentSlot
 end
 
@@ -382,6 +437,81 @@ end
 local tabDungeon = MakeTab("Dungeons", "DUNGEON")
 local tabRaid    = MakeTab("Raids", "RAID", tabDungeon)
 
+-- Spec-Filter ----------------------------------------------------------------
+
+local specBtn = CreateFrame("Button", nil, frame)
+specBtn:SetSize(140, 22)
+specBtn:SetPoint("LEFT", tabRaid, "RIGHT", 14, 0)
+specBtn.fill = specBtn:CreateTexture(nil, "BACKGROUND")
+specBtn.fill:SetAllPoints()
+specBtn.fill:SetColorTexture(SURFACE[1], SURFACE[2], SURFACE[3], 0.85)
+AddEdges(specBtn)
+specBtn.text = specBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+specBtn.text:SetPoint("LEFT", specBtn, "LEFT", 8, 0)
+specBtn.arrow = specBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+specBtn.arrow:SetPoint("RIGHT", specBtn, "RIGHT", -8, 0)
+specBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
+
+local specMenu = CreateFrame("Frame", nil, frame)
+specMenu:SetFrameStrata("DIALOG")
+specMenu:Hide()
+local spbg = specMenu:CreateTexture(nil, "BACKGROUND")
+spbg:SetAllPoints()
+spbg:SetColorTexture(BG[1], BG[2], BG[3], 0.98)
+AddEdges(specMenu)
+specMenu.entries = {}
+
+local function BuildSpecMenu()
+    local list = MySpecs()
+    local rows = #list + 1                     -- plus "Alle Specs"
+    specMenu:SetSize(140, rows * 20 + 8)
+    specMenu:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -2)
+
+    local function entry(i)
+        local e = specMenu.entries[i]
+        if e then return e end
+        e = CreateFrame("Button", nil, specMenu)
+        e:SetSize(136, 20)
+        e:SetPoint("TOPLEFT", specMenu, "TOPLEFT", 2, -(2 + (i - 1) * 20))
+        e.fill = e:CreateTexture(nil, "BACKGROUND")
+        e.fill:SetAllPoints()
+        e.fill:SetColorTexture(1, 1, 1, 0)
+        e.text = e:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        e.text:SetPoint("LEFT", e, "LEFT", 8, 0)
+        e:SetScript("OnEnter", function(self) self.fill:SetColorTexture(1, 1, 1, 0.08) end)
+        e:SetScript("OnLeave", function(self) self.fill:SetColorTexture(1, 1, 1, 0) end)
+        specMenu.entries[i] = e
+        return e
+    end
+
+    local e1 = entry(1)
+    e1.text:SetText("|c" .. INK .. "Alle Specs|r")
+    e1:SetScript("OnClick", function()
+        currentSpec = nil; specMenu:Hide(); ns.UI:Render()
+    end)
+    e1:Show()
+
+    local active = ActiveSpecID()
+    for i, s in ipairs(list) do
+        local e = entry(i + 1)
+        local suffix = (s.id == active) and ("  |c" .. INK_DIM .. "(aktiv)|r") or ""
+        e.text:SetText("|c" .. INK .. s.name .. "|r" .. suffix)
+        e:SetScript("OnClick", function()
+            currentSpec = s.id; specMenu:Hide(); ns.UI:Render()
+        end)
+        e:Show()
+    end
+end
+
+specBtn:SetScript("OnClick", function()
+    if specMenu:IsShown() then
+        specMenu:Hide()
+    else
+        BuildSpecMenu()
+        specMenu:Show()
+    end
+end)
+
 -- Liste ----------------------------------------------------------------------
 
 local scrollFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -543,10 +673,11 @@ function UI:Render()
     for _ in pairs(ns.ITEMS or {}) do total = total + 1 end
     subTitle:SetText(string.format("|c%s%d Items · %d auf der Wunschliste|r", INK_DIM, total, wish))
 
-    -- Filterknopf
+    -- Filterknöpfe
     local lbl = "Alle Slots"
     for _, g in ipairs(SLOT_GROUPS) do if g.key == currentSlot then lbl = g.label end end
     slotBtn.text:SetText("|c" .. (currentSlot == "ALL" and INK or ACCENT) .. lbl .. "|r")
+    specBtn.text:SetText("|c" .. (currentSpec and ACCENT or INK) .. SpecName(currentSpec) .. "|r")
 
     -- Tabs
     for _, t in ipairs({ tabDungeon, tabRaid }) do
@@ -676,6 +807,13 @@ function UI:Toggle()
         tierMenu:Hide()
     else
         MigrateWanted()
+        -- Beim ersten Oeffnen einer Sitzung auf die aktive Spezialisierung
+        -- vorfiltern. Wer das Fenster aufmacht, will in aller Regel sehen was
+        -- er gerade gebrauchen kann, nicht den Loot aller 40 Specs.
+        if currentSpec == nil and not UI._specInitDone then
+            currentSpec = ActiveSpecID()
+            UI._specInitDone = true
+        end
         frame:Show()
         UI:Render()
     end

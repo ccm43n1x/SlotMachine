@@ -153,6 +153,31 @@ const equipAmbiguous = [...equipMap.entries()].filter(([, set]) => set.size > 1)
 const equipList = [...equipMap.keys()].sort();
 const equipIndex = new Map(equipList.map((e, i) => [e, i + 1]));
 
+// Spezialisierungen ---------------------------------------------------------
+// Alle vorkommenden Specs einsammeln, um "kann jede Spec" erkennen zu koennen.
+// Ringe, Umhaenge und Schmuck tragen praktisch alle 40 Specs. Wuerde man die
+// jedes Mal ausschreiben, blaehte das die Datei um ein Vielfaches auf. Ein
+// Sternchen sagt dasselbe in einem Zeichen.
+const allSpecs = new Set();
+for (const r of gear) {
+    if (r.specs) for (const s of Object.keys(r.specs)) allSpecs.add(Number(s));
+}
+const allSpecCount = allSpecs.size;
+
+function specField(r) {
+    if (!r.specs) return null;
+    const list = Object.keys(r.specs).map(Number).sort((a, b) => a - b);
+    if (list.length === 0) return null;
+    if (list.length === allSpecCount) return '"*"';       // alle
+    return "{ " + list.join(", ") + " }";
+}
+
+let universal = 0;
+for (const r of gear) {
+    const f = specField(r);
+    if (f === '"*"') universal++;
+}
+
 // Nach Instanz und Boss gruppieren
 const byInstance = new Map();
 for (const r of gear) {
@@ -174,6 +199,8 @@ console.log("");
 console.log("Eintraege gesamt:   " + all.length);
 console.log("davon Ausruestung:  " + gear.length);
 console.log("aussortiert:        " + nonGear.length + "  (Rezepte, Dekoration)");
+console.log("Specs insgesamt:    " + allSpecCount);
+console.log("davon universell:   " + universal + "  (jede Spec, z. B. Ringe und Schmuck)");
 console.log("Instanzen:          " + byInstance.size);
 console.log("Bosse:              " + [...byInstance.values()].reduce((n, m) => n + m.size, 0));
 console.log("");
@@ -257,7 +284,12 @@ for (let i = 0; i < equipList.length; i++) {
 }
 L.push("}");
 L.push("");
-L.push("-- Item -> Eigenschaften. e = Index in ns.EQUIP, q = Qualitaetsfarbe.");
+L.push("-- Item -> Eigenschaften.");
+L.push("--   e = Index in ns.EQUIP");
+L.push("--   q = Qualitaetsfarbe");
+L.push("--   s = Spezialisierungen. Ein Sternchen heisst: jede Spec kann es");
+L.push("--       tragen. Ringe, Umhaenge und Schmuck sind fast immer so, und");
+L.push("--       die Liste jedes Mal auszuschreiben blaehte die Datei auf.");
 L.push("ns.ITEMS = {");
 
 for (const r of gear.sort((a, b) => a.itemID - b.itemID)) {
@@ -265,6 +297,8 @@ for (const r of gear.sort((a, b) => a.itemID - b.itemID)) {
     if (r.equipLoc && equipIndex.has(r.equipLoc)) parts.push("e = " + equipIndex.get(r.equipLoc));
     if (r.icon)    parts.push("icon = " + r.icon);
     if (r.quality) parts.push('q = "' + r.quality + '"');
+    const sf = specField(r);
+    if (sf) parts.push("s = " + sf);
     // Name nur als Kommentar, damit die Datei lesbar bleibt
     const comment = r.name ? ("  -- " + String(r.name).replace(/[\r\n]/g, " ")) : "";
     L.push("    [" + r.itemID + "] = { " + parts.join(", ") + " }," + comment);

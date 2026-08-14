@@ -59,6 +59,74 @@ end
 -- Eine Instanz auslesen
 -- ----------------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------------
+-- Spezialisierungen einsammeln
+-- ----------------------------------------------------------------------------
+-- Ergaenzt am 14.08.2026. Ohne diese Zuordnung kann das Add-on nicht nach
+-- Spec filtern, und genau das ist fuer den MVP verlangt.
+--
+-- Ablauf: Instanz EINMAL auswaehlen, dann den Loot-Filter ueber alle Klassen
+-- und Spezialisierungen durchschalten. Wer bei gesetztem Filter auftaucht,
+-- kann das Item gebrauchen.
+--
+-- Aufwand: 13 Klassen mal drei bis vier Specs sind rund 40 Filterwechsel je
+-- Instanz, bei elf Instanzen also etwa 440 Durchlaeufe. Beim Nutzer waere das
+-- unzumutbar. Weil dieser Scan nur beim Entwickler laeuft, ist es eine Minute
+-- Wartezeit, die sonst niemand erlebt. Genau dafuer wurde die Architektur so
+-- gewaehlt.
+
+local specList = nil
+local function GetAllSpecs()
+    if specList then return specList end
+    specList = {}
+    local numClasses = (GetNumClasses and GetNumClasses()) or 13
+    for classID = 1, numClasses do
+        local n = 0
+        pcall(function() n = GetNumSpecializationsForClassID(classID) or 0 end)
+        for specIndex = 1, n do
+            local ok, specID = pcall(GetSpecializationInfoForClassID, classID, specIndex)
+            if ok and specID then
+                specList[#specList + 1] = { classID = classID, specID = specID }
+            end
+        end
+    end
+    return specList
+end
+
+local function ReadSpecs(inst, store)
+    local getLoot = C_EncounterJournal and C_EncounterJournal.GetLootInfoByIndex
+    if not (getLoot and EJ_SetLootFilter) then return 0 end
+
+    local specs = GetAllSpecs()
+    local hits = 0
+
+    for _, s in ipairs(specs) do
+        local okF = pcall(EJ_SetLootFilter, s.classID, s.specID)
+        if okF then
+            local num = 0
+            pcall(function() num = EJ_GetNumLoot() or 0 end)
+            for i = 1, num do
+                local ok2, info = pcall(getLoot, i)
+                if ok2 and type(info) == "table" and info.itemID then
+                    local rec = store.items[info.itemID]
+                    if rec then
+                        rec.specs = rec.specs or {}
+                        if not rec.specs[s.specID] then
+                            rec.specs[s.specID] = true
+                            hits = hits + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Filter wieder oeffnen, sonst sieht der naechste Durchgang nur die
+    -- zuletzt gesetzte Spec.
+    pcall(function() if EJ_ResetLootFilter then EJ_ResetLootFilter() end end)
+    return hits
+end
+
 local function ReadInstance(inst, store)
     local ok = pcall(EJ_SelectInstance, inst.id)
     if not ok then return 0, 0 end
@@ -206,13 +274,14 @@ function Full:Run()
             Retry(store, instances, 1, function()
                 ns.Scanner:RestoreState()
 
-                local total, withName, gear = 0, 0, 0
+                local total, withName, gear, withSpec = 0, 0, 0, 0
                 for _, rec in pairs(store.items) do
                     total = total + 1
                     if rec.name then withName = withName + 1 end
                     -- Nur was einen Slot hat, ist Ausruestung und damit fuer
                     -- einen Loot-Planer ueberhaupt interessant.
                     if rec.slot and rec.slot ~= "" then gear = gear + 1 end
+                    if rec.specs and next(rec.specs) then withSpec = withSpec + 1 end
                 end
 
                 SlotMachineDB.scanResults = store.items
@@ -222,6 +291,7 @@ function Full:Run()
                 Say("--- Fertig ---")
                 Say(string.format("Items gesamt: %d, mit Namen: %d", total, withName))
                 Say(string.format("davon Ausrüstung: %d, Rest (Rezepte, Deko): %d", gear, total - gear))
+                Say(string.format("mit Spec-Zuordnung: %d von %d", withSpec, gear))
                 Say(string.format("Dauer: %.1f Sekunden", dur))
                 Say("Journal-Zustand wiederhergestellt.")
                 Say("Jetzt |cffffd100/reload|r, dann liegen die Daten in der Datei.")
@@ -231,8 +301,9 @@ function Full:Run()
 
         local inst = instances[i]
         local c, ic = ReadInstance(inst, store)
-        Say(string.format("%d/%d  %s (%d): %d vollständig, %d offen",
-            i, #instances, tostring(inst.name), inst.id, c, ic))
+        local sp = ReadSpecs(inst, store)
+        Say(string.format("%d/%d  %s (%d): %d vollständig, %d offen, %d Spec-Treffer",
+            i, #instances, tostring(inst.name), inst.id, c, ic, sp))
 
         C_Timer.After(INSTANCE_STEP, Step)
     end
