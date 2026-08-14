@@ -53,7 +53,7 @@ local GREEN   = "ff0ca30c"
 -- Aufbau an den Inhalt angepasst (siehe FitHeight).
 -- 780 statt 720: Die Filterleiste braucht 748 Pixel fuer Slot, zwei Reiter,
 -- Spec, Quelle und den Bonus-Roll-Haken. Der Rest kommt den Icon-Reihen zugute.
-local WIDTH, HEIGHT = 780, 560
+local WIDTH, HEIGHT = 830, 560
 local MIN_HEIGHT, MAX_HEIGHT = 220, 780
 local PAD           = 14
 local ICON          = 26      -- Kantenlaenge eines Item-Icons
@@ -161,17 +161,43 @@ local EQUIP_SLOTS = {
 
 -- Welche Quelle ist gerade gewaehlt? Getrennt fuer Dungeon und Raid, weil die
 -- Stufen dort nichts miteinander zu tun haben.
+local function SourceList()
+    if currentTab == "RAID" then return ns.SOURCES_RAID or {} end
+    return ns.SOURCES_DUNGEON or {}
+end
+
 local function CurrentSource()
-    local list = (currentTab == "RAID") and ns.SOURCES_RAID or ns.SOURCES_DUNGEON
+    local list = SourceList()
     local key  = (currentTab == "RAID") and SlotMachineDB.raidSource or SlotMachineDB.dungeonSource
     for _, s in ipairs(list) do
         if s.key == key then return s end
     end
-    return list[1]
+
+    -- Kein Treffer. Passiert, wenn in der gespeicherten Einstellung ein
+    -- Schluessel der jeweils ANDEREN Liste steht, etwa nach einem Umbau der
+    -- Stufen. Dann auf den ersten Eintrag zurueckfallen UND die Einstellung
+    -- gleich geradeziehen, sonst bleibt sie dauerhaft falsch.
+    local first = list[1]
+    if first then
+        if currentTab == "RAID" then
+            SlotMachineDB.raidSource = first.key
+        else
+            SlotMachineDB.dungeonSource = first.key
+        end
+    end
+    return first
 end
 
-local function SetCurrentSource(key)
-    if currentTab == "RAID" then
+-- forTab wird vom Menue mitgegeben.
+--
+-- Ohne diesen Parameter wurde der Tab erst beim KLICK geprueft, nicht beim
+-- Bauen des Menues. Wechselte man den Tab bei offenem Menue, landete ein
+-- Raid-Schluessel in der Dungeon-Einstellung. In den gespeicherten Daten stand
+-- dann dungeonSource = "heroic", ein Wert den die Dungeon-Liste gar nicht
+-- kennt, und die Anzeige fiel stumm auf den ersten Eintrag zurueck.
+local function SetCurrentSource(key, forTab)
+    local tab = forTab or currentTab
+    if tab == "RAID" then
         SlotMachineDB.raidSource = key
     else
         SlotMachineDB.dungeonSource = key
@@ -188,10 +214,19 @@ local function ResolvedCurrent()
     return ns.ResolveSource(src, useRoll), src
 end
 
+-- Auf einen konkreten Boss angepasst. Im Raid weicht das Itemlevel je Boss ab,
+-- spaetere droppen weiter oben im Track.
+local function ResolvedForBoss(encounterID)
+    local res, src = ResolvedCurrent()
+    if not res or not encounterID or not ns.BossAdjust then return res end
+    local useRoll = SlotMachineDB.bonusRoll and ns.HasBonusRoll(src)
+    return ns.BossAdjust(res, encounterID, ns.TrackKeyOf(src, useRoll))
+end
+
 -- Itemlevel des Items auf dem gewaehlten Niveau. Ohne Track-Auswahl faellt es
 -- auf das Basis-Level zurueck, das der Client kennt.
-local function ItemLevelOf(itemID)
-    local resolved = ResolvedCurrent()
+local function ItemLevelOf(itemID, encounterID)
+    local resolved = ResolvedForBoss(encounterID)
     if resolved and resolved.ilvl then return resolved.ilvl end
     if not (C_Item and C_Item.GetDetailedItemLevelInfo) then return nil end
     local ok, ilvl = pcall(C_Item.GetDetailedItemLevelInfo, itemID)
@@ -796,8 +831,10 @@ end
 
 -- Track-Waehler ---------------------------------------------------------------
 
+-- Breiter als die anderen Felder, weil hier Beschriftung, Upgrade-Pfad und im
+-- Raid zusaetzlich eine Itemlevel-Spanne nebeneinander stehen.
 local srcBtn = CreateFrame("Button", nil, frame)
-srcBtn:SetSize(150, 22)
+srcBtn:SetSize(196, 22)
 srcBtn:SetPoint("LEFT", specBtn, "RIGHT", 8, 0)
 srcBtn.fill = srcBtn:CreateTexture(nil, "BACKGROUND")
 srcBtn.fill:SetAllPoints()
@@ -825,7 +862,9 @@ srcMenu.entries = {}
 local rollBtn
 
 local function BuildSourceMenu()
-    local list = (currentTab == "RAID") and ns.SOURCES_RAID or ns.SOURCES_DUNGEON
+    -- Tab festhalten, fuer den dieses Menue gilt. Siehe SetCurrentSource.
+    local builtFor = currentTab
+    local list = SourceList()
     for _, e in ipairs(srcMenu.entries) do e:Hide() end
 
     -- Ein Eintrag je Quelle, plus der Bonus-Roll-Umschalter am Ende
@@ -851,7 +890,7 @@ local function BuildSourceMenu()
             e.arrow:SetText("|c" .. r.color .. r.badge .. "|r  |c" .. r.color .. lvl .. "|r")
         end
         e:SetScript("OnClick", function()
-            SetCurrentSource(s.key)
+            SetCurrentSource(s.key, builtFor)
             srcMenu:Hide(); ns.UI:Render()
         end)
     end
@@ -1301,8 +1340,17 @@ function UI:Render()
         srcBtn.text:SetText("|c" .. INK .. "?|r")
     end
     if res then
-        -- Upgrade-Pfad und Itemlevel des Loots, beides in Track-Farbe
-        srcBtn.arrow:SetText("|c" .. res.color .. res.badge .. "  " .. res.ilvl .. "|r")
+        -- Im Raid weicht das Itemlevel je Boss ab, ein Einzelwert waere dort
+        -- schlicht falsch. Deshalb die Spanne, sofern es eine gibt.
+        local lo, hi = nil, nil
+        if currentTab == "RAID" and ns.SourceRange then
+            lo, hi = ns.SourceRange(src, SlotMachineDB.bonusRoll and ns.HasBonusRoll(src))
+        end
+        if lo and hi then
+            srcBtn.arrow:SetText(string.format("|c%s%s  %d-%d|r", res.color, res.badge, lo, hi))
+        else
+            srcBtn.arrow:SetText("|c" .. res.color .. res.badge .. "  " .. res.ilvl .. "|r")
+        end
     else
         srcBtn.arrow:SetText("|c" .. INK_DIM .. "v|r")
     end
@@ -1391,6 +1439,10 @@ function UI:Render()
         end
         row.fill:SetColorTexture(1, 1, 1, src.score > 0 and 0.06 or 0.02)
 
+        -- Boss dieser Zeile festhalten. Die Klick- und Tooltip-Handler laufen
+        -- spaeter und duerfen sich nicht auf die Schleifenvariable verlassen.
+        local rowEncounter = src.encounterID
+
         for _, b in pairs(row.icons) do b:Hide() end
         for i, itemID in ipairs(src.items) do
             local b = GetIcon(row, i)
@@ -1446,7 +1498,7 @@ function UI:Render()
             if SlotMachineDB.hideItemLevel then
                 b.ilvlBg:Hide(); b.ilvl:Hide()
             else
-                local lvl = ItemLevelOf(itemID)
+                local lvl = ItemLevelOf(itemID, src.encounterID)
                 if not lvl then
                     b.ilvlBg:Hide(); b.ilvl:Hide()
                     -- Anstossen, damit es beim naechsten Aufbau da ist
@@ -1512,10 +1564,10 @@ function UI:Render()
                 -- Deshalb wird jetzt geprueft, ob wirklich Zeilen im Tooltip
                 -- stehen. Das ist der einzige verlaessliche Beleg dafuer, dass
                 -- der Link verstanden wurde.
-                local src = ResolvedCurrent()
+                local lvlInfo = ResolvedForBoss(rowEncounter)
                 local shown = false
-                if src and src.bonusId and ns.BuildItemLink then
-                    local link = ns.BuildItemLink(itemID, src.bonusId)
+                if lvlInfo and lvlInfo.bonusId and ns.BuildItemLink then
+                    local link = ns.BuildItemLink(itemID, lvlInfo.bonusId)
                     if pcall(GameTooltip.SetHyperlink, GameTooltip, link) then
                         shown = (GameTooltip:NumLines() or 0) > 0
                     end
@@ -1527,11 +1579,12 @@ function UI:Render()
                 end
 
                 GameTooltip:AddLine(" ")
-                if src then
+                if lvlInfo then
                     local q = CurrentSource()
-                    GameTooltip:AddLine(string.format("%s  ·  %s %s",
-                        (q and q.label) or "?", src.track, src.badge), HexToRGB(src.color))
-                    if SlotMachineDB.bonusRoll then
+                    GameTooltip:AddLine(string.format("%s  ·  %s %s  ·  %d",
+                        (q and q.label) or "?", lvlInfo.track, lvlInfo.badge, lvlInfo.ilvl),
+                        HexToRGB(lvlInfo.color))
+                    if SlotMachineDB.bonusRoll and ns.HasBonusRoll(q) then
                         GameTooltip:AddLine("Bonus Roll, entspricht der Großen Schatzkammer dieser Stufe",
                             0.65, 0.63, 0.58, true)
                     end

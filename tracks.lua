@@ -192,32 +192,101 @@ end
 -- ns.BOSS_RANK ordnet einer encounterID den Rang innerhalb des Tracks zu.
 -- Steht ein Boss nicht drin, gilt Rang 1, also der Standardwert der Stufe.
 --
--- NOCH LEER: Die encounterIDs stehen zwar in data.lua (Venomous Abyss hat
--- 2871, 2874, 2882, 2883, 2887, 2888, 2894, 2895), welche davon zu welchem
--- Boss gehoert, ist aber nicht belegt. Naheliegend waere, dass sie in
--- Raid-Reihenfolge vergeben sind und die beiden hoechsten die Endbosse sind.
--- Genau solche Annahmen mussten heute schon zweimal korrigiert werden,
--- deshalb erst mit /sm bosses verifizieren und dann eintragen.
+-- Am 14.08.2026 per /sm bosses im Spiel ausgelesen und damit belegt.
+--
+-- WICHTIG, weil es die Annahme widerlegt: Naheliegend waere gewesen, dass die
+-- encounterIDs in Raid-Reihenfolge vergeben sind und die beiden HOECHSTEN die
+-- Endbosse waeren. Falsch. Der Endboss "The Coiled Altar" traegt 2883 und
+-- liegt damit mitten im Feld, waehrend 2894 zu "The Lost Explorers" gehoert,
+-- einem frueheren Boss. Geraten haette man zwei Bosse um 26 Itemlevel
+-- verfehlt.
+--
+-- rank = Rang innerhalb des Tracks der gewaehlten Schwierigkeit.
+-- ilvl  = fester Wert, fuer die Endbosse jenseits des regulaeren Tracks.
 ns.BOSS_RANK = {
-    -- [encounterID] = { rank = n }  oder  { ilvl = n } fuer Werte ueber dem Track
+    -- The Venomous Abyss (1320)
+    [2888] = { rank = 1 },                        -- Nek'zali the Soulcoiler
+    [2874] = { rank = 2 },                        -- Entombed Sentinels
+    [2894] = { rank = 2 },                        -- The Lost Explorers
+    [2882] = { rank = 3 },                        -- Vashnik the Malignant
+    [2871] = { rank = 3 },                        -- Sszorak
+    [2887] = { rank = 3 },                        -- The Twin Fangs
+    [2883] = { rank = 3, endBoss = true },        -- The Coiled Altar
+    [2895] = { rank = 3, endBoss = true },        -- Ula'tek
+
+    -- The Tidebound Grotto (1317). Laut Method folgt der Lair-Boss denselben
+    -- Regeln wie ein regulaerer Raidboss.
+    [2849] = { rank = 1 },                        -- Nymrissa Wavecaller
 }
 
--- Rang eines Bosses innerhalb der gewaehlten Stufe.
-function ns.BossAdjust(resolved, encounterID)
+-- Spanne der Itemlevel einer Raid-Stufe.
+--
+-- Im Raid ist ein einzelner Wert schlicht falsch: Spaetere Bosse droppen
+-- weiter oben im Track, die letzten beiden auf Mythisch sogar darueber hinaus.
+-- Statt eine Zahl vorzutaeuschen, die fuer die meisten Bosse nicht stimmt,
+-- wird die Spanne gezeigt.
+--
+-- Belegt fuer Mythisch: 318 (Myth 1/6) bis 344 (Endbosse). Fuer die anderen
+-- Schwierigkeiten ist die Staffelung nicht im Detail recherchiert, deshalb
+-- wird dort die Track-Spanne bis zum vierten Rang angesetzt, was der
+-- beobachteten Staffelung Myth 1/6 bis 3/6 entspricht.
+function ns.SourceRange(source, asBonusRoll)
+    local r = ns.ResolveSource(source, asBonusRoll)
+    if not r then return nil end
+
+    local trackKey = asBonusRoll and (source.bonusTrack or source.track) or source.track
+    local t = ns.TRACKS[trackKey]
+    if not t then return nil end
+
+    local low = r.ilvl
+    local high
+    if trackKey == "myth" and source.key == "mythic" then
+        high = 344                       -- die beiden Endbosse
+    else
+        high = t.ilvl[math.min(r.rank + 2, #t.ilvl)]
+    end
+
+    if not high or high <= low then return nil end
+    return low, high
+end
+
+-- Passt eine aufgeloeste Stufe an den konkreten Boss an.
+--
+-- trackKey wird mitgegeben, weil der Rang im Track nachgeschlagen werden muss
+-- und resolved den Schluessel nicht mehr enthaelt.
+function ns.BossAdjust(resolved, encounterID, trackKey)
     if not resolved or not encounterID then return resolved end
     local adj = ns.BOSS_RANK[encounterID]
     if not adj then return resolved end
 
-    -- Fester Wert, etwa fuer die Endbosse jenseits des regulaeren Tracks
-    if adj.ilvl then
-        local out = {}
-        for k, v in pairs(resolved) do out[k] = v end
-        out.ilvl = adj.ilvl
-        out.badge = adj.badge or out.badge
+    local t = ns.TRACKS[trackKey]
+    if not t then return resolved end
+
+    local out = {}
+    for k, v in pairs(resolved) do out[k] = v end
+
+    -- Die letzten beiden Bosse auf Mythisch droppen JENSEITS des regulaeren
+    -- Tracks, laut Method 344 statt der sonst hoechsten 334. Nur dort greift
+    -- die Sonderbehandlung, auf niedrigeren Schwierigkeiten nicht.
+    if adj.endBoss and trackKey == "myth" then
+        out.ilvl  = 344
+        out.badge = t.letter .. " max"
+        out.rank  = #t.ilvl
         return out
     end
 
-    return resolved
+    local rank = math.max(1, math.min(adj.rank or 1, #t.ilvl))
+    out.ilvl  = t.ilvl[rank]
+    out.bonusId = t.bonus[rank]
+    out.rank  = rank
+    out.badge = string.format("%s %d/6", t.letter, rank)
+    return out
+end
+
+-- Welcher Track gilt fuer eine Quelle? Wird fuer BossAdjust gebraucht.
+function ns.TrackKeyOf(source, asBonusRoll)
+    if not source then return nil end
+    return asBonusRoll and (source.bonusTrack or source.track) or source.track
 end
 
 -- Farbe der Quelle selbst, also des Schluesselsteins bzw. der Raid-Stufe.
