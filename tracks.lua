@@ -100,11 +100,17 @@ function ns.ResolveSource(source, asBonusRoll)
     }
 end
 
--- Item-Link mit Bonus-ID. Das Feld nach den elf leeren Positionen ist die
--- Anzahl der Bonus-IDs, danach folgen sie einzeln. Aufbau abgelesen an einem
--- echten Link aus dem eigenen Scan:
---   item:268199::::::::90:250::5:1:3524:1:28:5850
+-- Item-Link mit Bonus-ID.
+--
+-- Feldreihenfolge nach itemID:
+--   enchant, gem1, gem2, gem3, gem4, suffix, unique, linkLevel,
+--   specID, modifiersMask, itemContext, numBonusIDs, dann die Bonus-IDs
+--
+-- Die Felder werden mit ausgeschriebenen Nullen gefuellt statt leer gelassen.
+-- Leere Felder sind zwar erlaubt, aber beim Zaehlen von zwoelf Doppelpunkten
+-- verzaehlt man sich lautlos, und ein um eine Position verschobener Link wird
+-- von WoW kommentarlos ignoriert statt einen Fehler zu werfen.
 function ns.BuildItemLink(itemID, bonusId)
     if not bonusId then return "item:" .. itemID end
-    return string.format("item:%d:::::::::::1:%d", itemID, bonusId)
+    return string.format("item:%d:0:0:0:0:0:0:0:0:0:0:0:1:%d", itemID, bonusId)
 end

@@ -1243,15 +1243,30 @@ function UI:Render()
 
                 -- Tooltip auf dem gewaehlten Niveau. Der Link mit angehaengter
                 -- Bonus-ID laesst WoW selbst rendern, samt korrekter
-                -- Sekundaerstats. Faellt der Aufbau durch, greift der normale
-                -- Weg ueber die Item-ID.
+                -- Sekundaerstats.
+                --
+                -- WICHTIG, hier lag der Fehler der ersten Fassung: pcall meldet
+                -- nur, dass nichts abgestuerzt ist. Ein Link, den WoW nicht
+                -- versteht, stuerzt aber gar nicht ab, er zeigt schlicht nichts.
+                -- Der Aufruf galt damit als erfolgreich, der Rueckfall griff
+                -- nie und es erschien ueberhaupt kein Tooltip.
+                --
+                -- Deshalb wird jetzt geprueft, ob wirklich Zeilen im Tooltip
+                -- stehen. Das ist der einzige verlaessliche Beleg dafuer, dass
+                -- der Link verstanden wurde.
                 local src = ns.ResolveSource and ns.ResolveSource(CurrentSource(), SlotMachineDB.bonusRoll)
                 local shown = false
                 if src and src.bonusId and ns.BuildItemLink then
                     local link = ns.BuildItemLink(itemID, src.bonusId)
-                    shown = pcall(GameTooltip.SetHyperlink, GameTooltip, link)
+                    if pcall(GameTooltip.SetHyperlink, GameTooltip, link) then
+                        shown = (GameTooltip:NumLines() or 0) > 0
+                    end
                 end
-                if not shown then GameTooltip:SetItemByID(itemID) end
+                if not shown then
+                    GameTooltip:ClearLines()
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetItemByID(itemID)
+                end
 
                 GameTooltip:AddLine(" ")
                 if src then
