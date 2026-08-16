@@ -189,6 +189,33 @@ end
 -- Aufbau
 -- ----------------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------------
+-- Anzeigezeilen aufbauen
+-- ----------------------------------------------------------------------------
+-- Ringe, Schmuck und Waffen belegen zwei Plaetze. Sie bekommen deshalb ZWEI
+-- Zeilen, damit jedes getragene Teil einzeln sichtbar ist.
+--
+-- Die Kandidaten aus dem Bestand stehen aber nur EINMAL, senkrecht mittig
+-- zwischen den beiden Zeilen. Sie gelten fuer beide Plaetze, doppelt gezeigt
+-- waeren sie eine Behauptung, die nicht stimmt.
+local function BuildDisplayRows(groups)
+    local out = {}
+    for _, grp in ipairs(groups) do
+        local n = #grp.slots
+        for i, slotID in ipairs(grp.slots) do
+            out[#out + 1] = {
+                label   = (n > 1) and string.format("%s %d", grp.label, i) or grp.label,
+                key     = grp.key,
+                slot    = slotID,
+                slots   = grp.slots,   -- fuer den Gruppen-Vergleichswert
+                anchor  = (i == 1),    -- nur hier werden Kandidaten gezeichnet
+                span    = n,
+            }
+        end
+    end
+    return out
+end
+
 function View:Refresh()
     local Inv = ns.Inventory
     if not Inv then return end
@@ -199,7 +226,13 @@ function View:Refresh()
     local groups   = Inv.GroupOrder and Inv:GroupOrder() or nil
     if not groups then return end
 
-    -- Bestand nach Slot-Gruppe sortieren
+    -- Hoechstes getragenes Itemlevel als Massstab fuer die Plausibilitaet.
+    local maxWorn = 0
+    for _, it in pairs(equipped) do
+        if it.ilvl and it.ilvl > maxWorn then maxWorn = it.ilvl end
+    end
+
+    -- Bestand nach Slot-Gruppe
     local byGroup = {}
     for _, it in ipairs(bag) do
         local g = Inv:GroupOf(it.equipLoc)
@@ -209,160 +242,124 @@ function View:Refresh()
         end
     end
 
+    local display = BuildDisplayRows(groups)
     local y = -(PAD + 42)
     local shown, withHigher = 0, 0
+    local seenGroup = {}
 
-    for idx, grp in ipairs(groups) do
+    for idx, d in ipairs(display) do
         local row = rows[idx]
         if not row then
             row = CreateFrame("Frame", nil, frame)
             row:SetHeight(ROW_H)
-
-            -- Jede zweite Zeile leicht abgesetzt. Ohne das verschwimmen
-            -- vierzehn gleich aussehende Zeilen zu einem Block, und man
-            -- verliert beim Lesen die Spur zur Beschriftung.
             row.stripe = row:CreateTexture(nil, "BACKGROUND")
             row.stripe:SetAllPoints()
-            row.stripe:SetColorTexture(1, 1, 1, (idx % 2 == 0) and 0.025 or 0)
-
             row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             row.label:SetPoint("LEFT", row, "LEFT", PAD, 0)
             row.label:SetJustifyH("LEFT")
             row.label:SetWidth(LABEL_W)
-            -- Mittelspalte als LISTE, nicht als einzelnes Icon.
-            --
-            -- Ringe, Schmuck und Waffen belegen zwei Plaetze. Die erste
-            -- Fassung zeigte dort nur das schwaechere der beiden, damit war
-            -- die Haelfte der getragenen Ausruestung unsichtbar. Jetzt stehen
-            -- beide nebeneinander, das schwaechere zuerst, weil genau das
-            -- ersetzt wuerde.
-            row.left, row.right, row.center = {}, {}, {}
-            for i = 1, 2 do
-                local c = MakeIcon(row)
-                c:SetPoint("LEFT", row, "LEFT", CENTER_X + (i - 1) * (ICON + ICON_GAP), 0)
-                row.center[i] = c
-            end
-
-            -- Hinweis fuer Zeilen ohne Bestand. Sonst wirkt eine leere Zeile
-            -- wie ein Fehler statt wie "hier gibt es nichts zu tun".
-            row.hint = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            row.hint:SetPoint("LEFT", row.center, "RIGHT", ICON_GAP + 4, 0)
-            row.hint:SetJustifyH("LEFT")
-
+            row.center = MakeIcon(row)
+            row.center:SetPoint("LEFT", row, "LEFT", CENTER_X, 0)
+            row.left, row.right = {}, {}
             rows[idx] = row
         end
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, y)
+        row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  0, y)
         row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, y)
+        row.stripe:SetColorTexture(1, 1, 1, (idx % 2 == 0) and 0.025 or 0)
         row:Show()
+        row.label:SetText("|c" .. INK .. d.label .. "|r")
 
-        row.label:SetText("|c" .. INK .. grp.label .. "|r")
-
-        -- Alle angelegten Teile dieser Gruppe, schwaechstes zuerst.
-        local worn = {}
-        for _, slotID in ipairs(grp.slots) do
-            local it = equipped[slotID]
-            if it and it.ilvl then worn[#worn + 1] = it end
+        -- Getragenes Teil dieser Zeile
+        local worn = equipped[d.slot]
+        if worn then
+            FillIcon(row.center, worn, true)
+        else
+            row.center.link = nil
+            row.center.tex:SetTexture(134400)
+            row.center.tex:SetAlpha(0.25)
+            row.center.lvl:SetText("")
+            row.center.badge:SetText("")
+            row.center:Show()
         end
-        table.sort(worn, function(a, b) return a.ilvl < b.ilvl end)
 
-        -- Vergleichswert bleibt das SCHWAECHSTE, weil genau das ersetzt wuerde.
-        local eq = worn[1]
-
-        for i = 1, 2 do
-            local c = row.center[i]
-            if worn[i] then
-                FillIcon(c, worn[i], true)
-            elseif i == 1 then
-                -- Leerer Slot: Platzhalter, damit die Spalte nicht ausfranst
-                c.link = nil
-                c.tex:SetTexture(134400)
-                c.tex:SetAlpha(0.25)
-                c.lvl:SetText("")
-                c.badge:SetText("")
-                c:Show()
-            else
-                c:Hide()
+        -- Vergleichswert der GRUPPE: das schwaechste getragene Teil, denn
+        -- genau das wuerde ersetzt.
+        local ref
+        for _, sid in ipairs(d.slots) do
+            local it = equipped[sid]
+            if it and it.ilvl then
+                if not ref or it.ilvl < ref then ref = it.ilvl end
             end
         end
-        local centerCount = math.max(#worn, 1)
 
-        -- Bestand aufteilen. Nur Teile mit erkanntem Track, alles andere ist
-        -- nicht aufwertbar und damit hier bedeutungslos.
-        --
-        -- GLEICHES Itemlevel gehoert nach links, nicht ins Nichts. Die erste
-        -- Fassung kannte nur groesser und kleiner; ein Teil mit exakt dem
-        -- gleichen Itemlevel fiel aus beiden Zweigen und verschwand. Es ist
-        -- kein Upgrade, aber eine Alternative mit womoeglich besseren
-        -- Sekundaerstats und gehoert damit gezeigt.
         local lower, higher = {}, {}
-        for _, it in ipairs(byGroup[grp.key] or {}) do
-            if it.track and it.ilvl and eq and eq.ilvl then
-                if it.ilvl > eq.ilvl then
-                    higher[#higher + 1] = it
-                else
-                    lower[#lower + 1] = it
+        if d.anchor then
+            for _, it in ipairs(byGroup[d.key] or {}) do
+                -- Plausibilitaetsgrenze statt Track-Filter.
+                --
+                -- Season-1-Ware SOLL sichtbar sein, man kann sie ja tragen.
+                -- Sie traegt nur keine Kennung und faellt aus der
+                -- Aufwertungs-Logik heraus. Draussen bleibt nur, was
+                -- offensichtlich von einer anderen Skala stammt: Am
+                -- 16.08.2026 meldete der Bestand einen Hals mit ilvl 518 und
+                -- eine Waffe mit 528, beides uralte Gegenstaende, deren
+                -- Itemlevel nach heutigen Massstaeben keinen Sinn ergibt.
+                local plausible = it.ilvl and it.ilvl <= maxWorn + 50
+                if plausible and ref then
+                    if it.ilvl > ref then
+                        higher[#higher + 1] = it
+                    else
+                        lower[#lower + 1] = it
+                    end
                 end
             end
-        end
-        table.sort(lower,  function(a, b) return a.ilvl > b.ilvl end)  -- naechstbestes zuerst
-        table.sort(higher, function(a, b) return a.ilvl < b.ilvl end)  -- aufsteigend nach rechts
+            table.sort(lower,  function(a, b) return a.ilvl > b.ilvl end)
+            table.sort(higher, function(a, b) return a.ilvl < b.ilvl end)
 
-        -- Links: absteigend nach aussen
+            if #higher > 0 and not seenGroup[d.key] then
+                withHigher = withHigher + 1
+                seenGroup[d.key] = true
+            end
+        end
+
+        -- Bei zwei Zeilen sitzen die Kandidaten senkrecht mittig dazwischen.
+        local drop = -(d.span - 1) * ROW_H / 2
+
         for i = 1, MAX_SIDE do
             local b = row.left[i]
-            if not b then
-                b = MakeIcon(row)
-                b:SetPoint("RIGHT", row, "LEFT", CENTER_X - (i - 1) * (ICON + ICON_GAP) - ICON_GAP, 0)
-                row.left[i] = b
-            end
+            if not b then b = MakeIcon(row); row.left[i] = b end
+            b:ClearAllPoints()
+            b:SetPoint("RIGHT", row, "LEFT",
+                CENTER_X - (i - 1) * (ICON + ICON_GAP) - ICON_GAP, drop)
             if lower[i] then FillIcon(b, lower[i], false) else b:Hide() end
         end
 
-        -- Rechts: aufsteigend nach aussen. Der Startpunkt haengt davon ab, ob
-        -- die Mittelspalte ein oder zwei Icons breit ist, sonst ueberlappen
-        -- die Kandidaten bei Ringen und Schmuck das zweite getragene Teil.
         for i = 1, MAX_SIDE do
             local b = row.right[i]
-            if not b then
-                b = MakeIcon(row)
-                row.right[i] = b
-            end
+            if not b then b = MakeIcon(row); row.right[i] = b end
             b:ClearAllPoints()
             b:SetPoint("LEFT", row, "LEFT",
-                CENTER_X + (centerCount + i - 1) * (ICON + ICON_GAP), 0)
+                CENTER_X + i * (ICON + ICON_GAP), drop)
             if higher[i] then FillIcon(b, higher[i], false) else b:Hide() end
         end
-
-        -- Der Hinweis je Zeile ist wieder raus.
-        --
-        -- Im Spiel stand er in vierzehn von vierzehn Zeilen und war damit
-        -- reines Rauschen: Wenn ueberall dasselbe steht, sagt es nichts mehr.
-        -- Stattdessen eine einzige Zeile unten, wenn wirklich nirgends etwas
-        -- liegt. Faustregel: Ein Hinweis, der immer erscheint, ist keiner.
-        row.hint:SetText("")
-        row.hint:Hide()
-        if #higher > 0 then withHigher = withHigher + 1 end
 
         y = y - ROW_H
         shown = shown + 1
     end
 
-    -- Ueberzaehlige Zeilen ausblenden, falls die Gruppenliste je schrumpft
     for i = shown + 1, #rows do rows[i]:Hide() end
 
     local height = PAD + 42 + shown * ROW_H + PAD
     frame:SetHeight(height)
-    -- Linie mittig hinter der Icon-Spalte, nicht am linken Rand des Icons.
     centerLine:SetPoint("TOP", frame, "TOPLEFT", CENTER_X + ICON / 2 + 1, -(PAD + 42))
     centerLine:SetHeight(shown * ROW_H)
 
-    -- Eine Statuszeile statt vierzehn gleichlautender Hinweise
     if not st.stamp then
         subtitle:SetText("|c" .. INK_DIM .. "Bestand wird noch erfasst ...|r")
     elseif not st.complete then
         subtitle:SetText("|c" .. INK_DIM .. "Daten noch unvollständig, gleich mehr|r")
     elseif withHigher == 0 then
-        subtitle:SetText("|c" .. INK_DIM .. "In keinem Slot liegt etwas Aufwertbares über dem Angelegten|r")
+        subtitle:SetText("|c" .. INK_DIM .. "In keinem Slot liegt etwas Besseres im Bestand|r")
     elseif withHigher == 1 then
         subtitle:SetText("|c" .. ACCENT .. "1 Slot|r|c" .. INK_DIM .. " hat etwas Besseres im Bestand|r")
     else
