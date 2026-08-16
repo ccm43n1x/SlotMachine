@@ -175,6 +175,34 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
     elseif cmd == "scan" then
         ns.FullScan:Run()
 
+    elseif cmd == "upgrade" or cmd == "up" then
+        -- Aufwertungsfenster (B4). Steht vorerst allein; die Einbettung als
+        -- Reiter neben Dungeon und Raid ist C3.
+        if not ns.UpgradeView then
+            Say("Aufwertungs-Modul nicht geladen.")
+        else
+            ns.UpgradeView:Toggle()
+        end
+
+    elseif cmd == "state" then
+        if not ns.Inventory then
+            Say("Bestands-Modul nicht geladen.")
+        else
+            ns.Inventory:DumpState()
+        end
+
+    elseif cmd == "bag" then
+        -- Diagnose fuer die Gratis-Upgrade-Erkennung (Gruppe B).
+        -- Zeigt angelegte Ausruestung und anlegbare Teile im Bestand mit
+        -- Itemlevel, erkanntem Track und den rohen Bonus-IDs. Zweck ist die
+        -- Frage, ob sich Track und Rang ueber die Bonus-IDs aus tracks.lua
+        -- zuverlaessig bestimmen lassen.
+        if not ns.Inventory then
+            Say("Bestands-Modul nicht geladen.")
+        else
+            ns.Inventory:Report()
+        end
+
     elseif cmd == "" then
         ns.UI:Toggle()
 
@@ -192,6 +220,8 @@ SlashCmdList["SLOTMACHINE"] = function(msg)
         Say("  |cffffd100/sm instances|r   Instanzen des aktuellen Tiers mit IDs")
         Say("  |cffffd100/sm probe <ID>|r  Diagnose: was liefert das Journal für diese Instanz")
         Say("  |cffffd100/sm scan|r        Vollscan über alle Instanzen des Tiers")
+        Say("  |cffffd100/sm upgrade|r     Aufwertungsfenster: je Slot angelegt vs. Bestand")
+        Say("  |cffffd100/sm bag|r         Bestand als Textausgabe, mit Track-Erkennung")
         Say("  |cffffd100/sm bosses|r      Bossnamen mit ihren IDs, je Instanz")
         Say("  |cffffd100/sm chat|r        Welche Chat-Fenster gibt es, welches wird genutzt")
         Say("|cff808080  Alles Entwickler-Werkzeuge. Die Nutzeroberfläche kommt später.|r")
@@ -209,6 +239,18 @@ init:SetScript("OnEvent", function(self, event, arg1)
         ApplyDefaults()
         if ns.UI and ns.UI.RestorePosition then ns.UI:RestorePosition() end
         if ns.Minimap then ns.Minimap:Init() end
+        -- Bestandsaufnahme laeuft ab hier still im Hintergrund. Sie liest
+        -- Nutzerdaten (Taschen, Ausruestung, Waehrungen) und kann deshalb
+        -- nicht vorgeneriert werden wie der Journal-Scan.
+        -- Jeder Start einzeln abgesichert. Faellt ein Modul aus, laufen die
+        -- anderen trotzdem an. Ohne pcall reisst ein Fehler in einem frueheren
+        -- Init alle folgenden mit, und man sucht den Fehler dann an der
+        -- falschen Stelle.
+        if ns.Inventory then pcall(function() ns.Inventory:Init() end) end
+        -- Muss NACH Inventory:Init laufen, weil es sich dort anmeldet.
+        if ns.UpgradeView and ns.UpgradeView.Init then
+            pcall(function() ns.UpgradeView:Init() end)
+        end
 
         local n = 0
         for _ in pairs(ns.ITEMS or {}) do n = n + 1 end

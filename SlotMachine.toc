@@ -13,6 +13,8 @@ data.lua
 tracks.lua
 scanner.lua
 scanner_full.lua
+inventory.lua
+upgradeview.lua
 ui.lua
 minimap.lua
 main.lua

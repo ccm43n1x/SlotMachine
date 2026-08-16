@@ -31,17 +31,40 @@ local AddonName, ns = ...
 -- letter = Kuerzel des Upgrade-Pfads. Wird zusammen mit dem Rang angezeigt,
 -- also "H 3/6". Das sagt mehr als eine Wiederholung der Schluesselstein-Stufe,
 -- die ohnehin schon danebensteht.
+-- FARBEN, korrigiert am 16.08.2026
+--
+-- Vorher war die Palette um eine Stufe verrutscht: Veteran stand auf
+-- ff9d9d9d, und das ist WoWs POOR-Farbe, also die fuer Muell. Ein regulaerer
+-- Track in Grautoenen sieht im Fenster aus wie ein nicht erkanntes Item.
+--
+-- RECHERCHE-STAND: Es gibt keine oeffentlich dokumentierte Blizzard-Palette
+-- fuer die Upgrade-Tracks. Belegt sind nur Ampelfarben fuer die CRESTS
+-- (Runed gelb, Gilded rot laut Blizzard-Forum), und die betreffen die
+-- Waehrung, nicht den Track.
+--
+-- GEWAEHLTE LOESUNG: Blizzards Qualitaetsfarben, aufsteigend. Dasselbe
+-- Prinzip, das in diesem Add-on schon fuer die Wunschliste-Stufen gilt, mit
+-- derselben Begruendung: Jeder Spieler liest diese Rangfolge ohne Legende.
+--
+--   Common weiss  ffffffff  -> Adventurer (sobald der Track dazukommt)
+--   Uncommon      ff1eff00  -> Veteran
+--   Rare          ff0070dd  -> Champion
+--   Epic          ffa335ee  -> Hero
+--   Legendary     ffff8000  -> Myth
+--
+-- Damit ist die oberste Stufe legendaer-orange statt episch-lila, was sie
+-- auch verdient, und Grau bleibt reserviert fuer "kein Track erkannt".
 ns.TRACKS = {
-    veteran   = { name = "Veteran",  letter = "V", color = "ff9d9d9d",
+    veteran   = { name = "Veteran",  letter = "V", color = "ff1eff00",
                   ilvl = { 279, 282, 285, 289, 292, 295 },
                   bonus = { 12825, 12826, 12827, 12828, 12829, 12830 } },
-    champion  = { name = "Champion", letter = "C", color = "ff1eff00",
+    champion  = { name = "Champion", letter = "C", color = "ff0070dd",
                   ilvl = { 292, 295, 298, 302, 305, 308 },
                   bonus = { 12833, 12834, 12835, 12836, 12837, 12838 } },
-    hero      = { name = "Held",     letter = "H", color = "ff0070dd",
+    hero      = { name = "Held",     letter = "H", color = "ffa335ee",
                   ilvl = { 305, 308, 311, 315, 318, 321 },
                   bonus = { 12841, 12842, 12843, 12844, 12845, 12846 } },
-    myth      = { name = "Mythos",   letter = "M", color = "ffa335ee",
+    myth      = { name = "Mythos",   letter = "M", color = "ffff8000",
                   ilvl = { 318, 321, 324, 328, 331, 334 },
                   bonus = { 12849, 12850, 12851, 12852, 12853, 12854 } },
 }
@@ -164,6 +187,24 @@ function ns.ResolveSource(source, asBonusRoll)
         letter  = t.letter,
         badge   = string.format("%s %d/6", t.letter, rank),   -- z.B. "H 3/6"
     }
+end
+
+-- Kennung eines Tracks als fertiger, eingefaerbter Text: "H 3/6".
+--
+-- Ausgelagert am 16.08.2026, weil das Format jetzt an zwei Stellen gebraucht
+-- wird: in der Quellen-Liste (ueber ResolveSource) und im Aufwertungsfenster.
+-- Ein drittes Mal dasselbe string.format waere die Stelle, an der die beiden
+-- Fenster irgendwann auseinanderlaufen.
+--
+-- Gibt nil zurueck, wenn der Track unbekannt ist. Der Aufrufer entscheidet,
+-- was er dann anzeigt.
+function ns.TrackBadge(trackKey, rank, withColor)
+    local t = ns.TRACKS[trackKey]
+    if not t or not rank then return nil end
+    rank = math.max(1, math.min(rank, #t.ilvl))
+    local text = string.format("%s %d/6", t.letter, rank)
+    if withColor == false then return text end
+    return "|c" .. t.color .. text .. "|r"
 end
 
 -- Gibt es fuer diese Quelle ueberhaupt einen Bonus Roll?
