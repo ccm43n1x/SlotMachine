@@ -73,6 +73,30 @@ ns.TRACKS = {
 -- gebraucht, der auf die erste Stufe des naechsthoeheren Tracks geht.
 ns.TRACK_ORDER = { "veteran", "champion", "hero", "myth" }
 
+-- ----------------------------------------------------------------------------
+-- Itemlevel-Spanne der Season
+-- ----------------------------------------------------------------------------
+-- Wofuer: Der Bestand enthaelt jede Menge Altcontent. Ein Ring mit ilvl 103
+-- oder ein Hals mit ilvl 518 sind keine Alternativen, sondern Rauschen. Die
+-- Ansicht braucht deshalb eine Ober- und eine Untergrenze.
+--
+-- WARUM DIESE ZAHLEN: Die Untergrenze ist der Einstieg des niedrigsten Tracks
+-- der laufenden Season (Adventurer 1/6). Darunter ist nichts mehr relevant,
+-- weil es weder tragbar konkurriert noch aufwertbar ist. Die Obergrenze liegt
+-- ueber dem Ende des Myth-Tracks (334), weil Very-Rare-Items und die letzten
+-- Raidbosse darueber hinausgehen (337 bis 344 laut Recherche).
+--
+-- Das ist bewusst eine SEASON-Angabe und keine Rechnung auf das eigene
+-- Itemlevel. Ein Behelf wie "hoechstes getragenes plus 50" verschiebt sich mit
+-- dem eigenen Fortschritt und schneidet zu Beginn zu viel weg.
+--
+-- ACHTUNG BEI SONDERFAELLEN: Einzelne Gegenstaende koennen die Spanne
+-- verlassen (Event-Items, Zeitwanderung, kuenftige Sondertracks). Wenn etwas
+-- fehlt, das eigentlich da sein muesste, ist diese Grenze der erste
+-- Verdaechtige. Bei jedem Season-Wechsel mitpflegen.
+ns.SEASON_ILVL_MIN = 266   -- Adventurer 1/6
+ns.SEASON_ILVL_MAX = 344   -- Very Rare und Endbosse, oberhalb von Myth 6/6
+
 -- Was faellt wo? rank ist der Rang innerhalb des Tracks, beginnend bei 1.
 --
 -- Die Zuordnung der Schluesselstein-Stufen stammt aus Keystone Loots

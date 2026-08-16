@@ -37,7 +37,7 @@ local INK_DIM = "ff8d887e"
 -- Zwei Icon-Plaetze mehr als frueher: Die Mittelspalte kann bei Ringen und
 -- Schmuck zwei Teile breit sein, und rechts sollen trotzdem MAX_SIDE
 -- Kandidaten Platz haben.
-local WIDTH       = 392
+local WIDTH       = 420
 local PAD         = 14
 local ICON        = 28
 local ICON_GAP    = 4
@@ -169,14 +169,41 @@ local function FillIcon(b, item, isEquipped)
     end
     b.tex:SetTexture(icon)
 
-    -- Angelegtes voll, Bestand leicht abgedunkelt. Der Blick soll zuerst auf
-    -- die Mittelspalte fallen.
-    b.tex:SetDesaturated(false)
-    b.tex:SetAlpha(isEquipped and 1.0 or 0.82)
+    -- ALLE Icons stehen bei voller Deckkraft. Alte Ware wird ENTSAETTIGT.
+    --
+    -- Zwei Irrwege bis hierher, beide am 16.08.2026:
+    --
+    -- 1. Erst wurde alles abgedunkelt, was nicht angelegt war. Falsche Achse:
+    --    Der Grossteil dieser Icons sind vollwertige Kandidaten.
+    --
+    -- 2. Dann nur noch alte Ware, aber weiterhin ueber die Deckkraft. Das
+    --    Grundproblem blieb, und es liegt in der Methode selbst: Deckkraft
+    --    senken heisst, den dunklen Fensterhintergrund durchscheinen zu
+    --    lassen. Das ergibt keinen "zurueckgenommenen" Gegenstand, sondern
+    --    einen grauen Schleier ueber der ganzen Ansicht.
+    --
+    -- Entsaettigung ist das richtige Mittel. Sie nimmt die Farbe, nicht die
+    -- Helligkeit: Das Icon bleibt klar erkennbar und tritt trotzdem sichtbar
+    -- hinter allem Farbigen zurueck. WoW benutzt dieselbe Sprache fuer
+    -- nicht verfuegbare Faehigkeiten.
+    b.tex:SetAlpha(1.0)
+    local isCurrent = isEquipped or (item.track ~= nil)
+    b.tex:SetDesaturated(not isCurrent)
 
-    -- Itemlevel schlicht in Weiss auf dem Icon. Die Farbe traegt die Kennung
-    -- darunter, sonst konkurrieren zwei eingefaerbte Zahlen um denselben Blick.
-    b.lvl:SetText(tostring(item.ilvl or "?"))
+    -- Itemlevel in der Farbe des Tracks.
+    --
+    -- Erst stand es in Weiss, mit dem Gedanken, zwei eingefaerbte Zahlen
+    -- wuerden konkurrieren. Das war falsch gedacht: Farbe und Kennung sagen
+    -- dasselbe und verstaerken sich. Wichtiger noch, bei alten Teilen OHNE
+    -- Kennung ist die Farbe die einzige Information, die bleibt.
+    --
+    -- Altcontent bekommt deshalb ein gedaempftes Grau. Es soll lesbar sein,
+    -- aber nicht um Aufmerksamkeit buhlen.
+    local lvlColor = INK_DIM
+    if item.track and ns.TRACKS[item.track] then
+        lvlColor = ns.TRACKS[item.track].color
+    end
+    b.lvl:SetText("|c" .. lvlColor .. tostring(item.ilvl or "?") .. "|r")
 
     -- Kennung im Format des Hauptfensters. Ohne erkannten Track bleibt die
     -- Zeile leer statt "?" zu zeigen: Ein Teil ohne aktuellen Track ist nicht
@@ -227,10 +254,6 @@ function View:Refresh()
     if not groups then return end
 
     -- Hoechstes getragenes Itemlevel als Massstab fuer die Plausibilitaet.
-    local maxWorn = 0
-    for _, it in pairs(equipped) do
-        if it.ilvl and it.ilvl > maxWorn then maxWorn = it.ilvl end
-    end
 
     -- Bestand nach Slot-Gruppe
     local byGroup = {}
@@ -261,6 +284,17 @@ function View:Refresh()
             row.center = MakeIcon(row)
             row.center:SetPoint("LEFT", row, "LEFT", CENTER_X, 0)
             row.left, row.right = {}, {}
+
+            -- Anzeiger fuer Abgeschnittenes. Die Zeile zeigt hoechstens
+            -- MAX_SIDE Icons je Seite; was darueber hinaus liegt, wuerde sonst
+            -- stillschweigend verschwinden. Das widerspricht der Regel, dass
+            -- Ausgeblendetes benannt wird.
+            row.moreL = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            row.moreL:SetPoint("RIGHT", row, "LEFT",
+                CENTER_X - MAX_SIDE * (ICON + ICON_GAP) - 2, 0)
+            row.moreR = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            row.moreR:SetJustifyH("LEFT")
+
             rows[idx] = row
         end
         row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  0, y)
@@ -295,17 +329,20 @@ function View:Refresh()
         local lower, higher = {}, {}
         if d.anchor then
             for _, it in ipairs(byGroup[d.key] or {}) do
-                -- Plausibilitaetsgrenze statt Track-Filter.
+                -- Season-Spanne statt Track-Filter.
                 --
                 -- Season-1-Ware SOLL sichtbar sein, man kann sie ja tragen.
                 -- Sie traegt nur keine Kennung und faellt aus der
-                -- Aufwertungs-Logik heraus. Draussen bleibt nur, was
-                -- offensichtlich von einer anderen Skala stammt: Am
-                -- 16.08.2026 meldete der Bestand einen Hals mit ilvl 518 und
-                -- eine Waffe mit 528, beides uralte Gegenstaende, deren
-                -- Itemlevel nach heutigen Massstaeben keinen Sinn ergibt.
-                local plausible = it.ilvl and it.ilvl <= maxWorn + 50
-                if plausible and ref then
+                -- Aufwertungs-Logik heraus. Draussen bleibt, was ausserhalb
+                -- der Itemlevel-Spanne der laufenden Season liegt: nach oben
+                -- der Altcontent auf fremder Skala (ilvl 518, 528), nach unten
+                -- alles unterhalb von Adventurer 1/6, etwa ein Ring mit 103.
+                --
+                -- Grenzen stehen in tracks.lua, weil sie Season-Daten sind.
+                local lo = ns.SEASON_ILVL_MIN or 0
+                local hi = ns.SEASON_ILVL_MAX or 9999
+                local inRange = it.ilvl and it.ilvl >= lo and it.ilvl <= hi
+                if inRange and ref then
                     if it.ilvl > ref then
                         higher[#higher + 1] = it
                     else
@@ -342,6 +379,19 @@ function View:Refresh()
                 CENTER_X + i * (ICON + ICON_GAP), drop)
             if higher[i] then FillIcon(b, higher[i], false) else b:Hide() end
         end
+
+        -- Was nicht mehr passt, wird beziffert statt verschluckt. Die Pfeile
+        -- zeigen nach aussen, also in die Richtung, in der es weitergeht.
+        local restL = math.max(0, #lower  - MAX_SIDE)
+        local restR = math.max(0, #higher - MAX_SIDE)
+        -- Guillemets statt Dreieckspfeilen. Das Zeichen U+25C2 gibt es in WoWs
+        -- Schriftart nicht und wurde am 16.08.2026 als leeres Kaestchen
+        -- gerendert. « und » liegen in Latin-1 und sind sicher vorhanden.
+        row.moreL:SetText(restL > 0 and ("|c" .. INK_DIM .. "«" .. restL .. "|r") or "")
+        row.moreR:ClearAllPoints()
+        row.moreR:SetPoint("LEFT", row, "LEFT",
+            CENTER_X + (MAX_SIDE + 1) * (ICON + ICON_GAP) + 2, drop)
+        row.moreR:SetText(restR > 0 and ("|c" .. INK_DIM .. restR .. "»|r") or "")
 
         y = y - ROW_H
         shown = shown + 1
